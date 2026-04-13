@@ -1,0 +1,45 @@
+import { NextResponse } from "next/server";
+import { getSupabaseServerClient } from "@/lib/supabase/supabaseServer";
+
+/**
+ * Handles login requests using email and password only.
+ * Returns a simple JSON response with either session data or an error.
+ */
+export async function POST(request) {
+  try {
+    const body = await request.json();
+    const email = body?.email;
+    const password = body?.password;
+
+    if (!email || !password) {
+      return NextResponse.json(
+        { error: "Email and password are required." },
+        { status: 400 },
+      );
+    }
+
+    const supabase = getSupabaseServerClient();
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+
+    return NextResponse.json(
+      {
+        message: "Login successful.",
+        user: data.user,
+        session: data.session,
+      },
+      { status: 200 },
+    );
+  } catch {
+    return NextResponse.json(
+      { error: "Something went wrong while logging in." },
+      { status: 500 },
+    );
+  }
+}
