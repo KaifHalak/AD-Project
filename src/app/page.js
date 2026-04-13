@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
 
 async function loginWithEmailPassword(email, password) {
   const response = await fetch("/api/auth/login", {
@@ -57,6 +58,25 @@ export default function Home() {
             response.data?.error || "Server error. Please try again.",
           );
         }
+        return;
+      }
+
+      const accessToken = response.data?.session?.access_token;
+      const refreshToken = response.data?.session?.refresh_token;
+
+      if (!accessToken || !refreshToken) {
+        setErrorMessage("Login succeeded but no session was returned.");
+        return;
+      }
+
+      const supabase = getSupabaseBrowserClient();
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+
+      if (sessionError) {
+        setErrorMessage("Could not create local session. Please try again.");
         return;
       }
 

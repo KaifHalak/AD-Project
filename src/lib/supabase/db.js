@@ -19,6 +19,15 @@ export async function getAllRecords(table) {
 }
 
 /**
+ * Reads one row from a table by matching a single column value.
+ * Use this for simple lookups like finding a user by email.
+ */
+export async function getRecordByColumn(table, column, value, columns = "*") {
+  const supabase = getSupabaseBrowserClient();
+  return supabase.from(table).select(columns).eq(column, value).maybeSingle();
+}
+
+/**
  * Updates one row in a table by id.
  * idColumn defaults to "id" for common table structures.
  */
