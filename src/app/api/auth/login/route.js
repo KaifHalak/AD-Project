@@ -25,7 +25,10 @@ export async function POST(request) {
     });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 401 });
+      return NextResponse.json(
+        { error: "Invalid email or password." },
+        { status: 401 },
+      );
     }
 
     return NextResponse.json(
@@ -36,7 +39,8 @@ export async function POST(request) {
       },
       { status: 200 },
     );
-  } catch {
+  } catch (error) {
+    console.error("Error during login:", error);
     return NextResponse.json(
       { error: "Something went wrong while logging in." },
       { status: 500 },
