@@ -37,7 +37,7 @@ async function getRequesterProfile(accessToken) {
   const scopedClient = getSupabaseServerClient(accessToken);
   const { data: requester, error: requesterError } = await scopedClient
     .from("users")
-    .select("id, email")
+    .select("id, email, role")
     .eq("email", authData.user.email)
     .maybeSingle();
 
@@ -94,6 +94,19 @@ export async function POST(request) {
       );
     }
 
+    if (requester.role === "pic") {
+      return NextResponse.json(
+        {
+          message: "PIC users do not require token verification.",
+          valid: true,
+          bypassVerification: true,
+          expiresAt: null,
+          verifiedFor: requester.email,
+        },
+        { status: 200 },
+      );
+    }
+
     const { data: assignedToken, error: assignedTokenError } =
       await scopedClient
         .from("pic_tokens")
@@ -120,10 +133,31 @@ export async function POST(request) {
         );
       }
 
+      const { error: verificationUpdateError } = await scopedClient
+        .from("users")
+        .update({
+          verified: true,
+          verification_expiry: assignedToken.expires_at,
+        })
+        .eq("id", requester.id);
+
+      if (verificationUpdateError) {
+        console.error(
+          "Error updating user verification state:",
+          verificationUpdateError,
+        );
+        return NextResponse.json(
+          { error: "Code valid, but could not persist verification state." },
+          { status: 500 },
+        );
+      }
+
       return NextResponse.json(
         {
           message: "Code verified successfully.",
           valid: true,
+          expiresAt: assignedToken.expires_at,
+          verifiedFor: requester.email,
         },
         { status: 200 },
       );

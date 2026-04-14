@@ -1,18 +1,115 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { getCurrentSession } from "@/lib/supabase/auth";
+import { fetchVerificationStatus } from "@/lib/verificationClient";
 
 export default function AppNavbar() {
+  const router = useRouter();
   const pathname = usePathname();
+  const [isCheckingBooking, setIsCheckingBooking] = useState(false);
+  const [hasActiveVerification, setHasActiveVerification] = useState(false);
+
+  const accountActive = pathname.startsWith("/account");
+  const bookingActive = pathname.startsWith("/booking");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (pathname === "/") {
+      setHasActiveVerification(false);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function refreshVerificationBadge() {
+      try {
+        const { data: sessionData } = await getCurrentSession();
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (!sessionData?.session) {
+          setHasActiveVerification(false);
+          return;
+        }
+
+        const accessToken = sessionData.session.access_token;
+        const verificationResponse = await fetchVerificationStatus(accessToken);
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (!verificationResponse.ok) {
+          setHasActiveVerification(false);
+          return;
+        }
+
+        setHasActiveVerification(
+          Boolean(
+            verificationResponse.data?.verified ||
+            verificationResponse.data?.bypassVerification,
+          ),
+        );
+      } catch {
+        if (isMounted) {
+          setHasActiveVerification(false);
+        }
+      }
+    }
+
+    refreshVerificationBadge();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [pathname]);
 
   // Keep the login screen focused by hiding global navigation on root route.
   if (pathname === "/") {
     return null;
   }
 
-  const accountActive = pathname.startsWith("/account");
-  const bookingActive = pathname.startsWith("/booking");
+  async function handleBookingClick() {
+    try {
+      setIsCheckingBooking(true);
+
+      const { data: sessionData } = await getCurrentSession();
+
+      if (!sessionData?.session) {
+        router.push("/");
+        return;
+      }
+
+      const accessToken = sessionData.session.access_token;
+      const verificationResponse = await fetchVerificationStatus(accessToken);
+
+      if (!verificationResponse.ok) {
+        router.push("/token-verification?redirect=/booking");
+        return;
+      }
+
+      const canAccessBooking =
+        verificationResponse.data?.verified ||
+        verificationResponse.data?.bypassVerification;
+
+      if (canAccessBooking) {
+        router.push("/booking");
+        return;
+      }
+
+      router.push("/token-verification?redirect=/booking");
+    } catch {
+      router.push("/token-verification?redirect=/booking");
+    } finally {
+      setIsCheckingBooking(false);
+    }
+  }
 
   return (
     <header className="border-b border-border-light bg-panel">
@@ -33,16 +130,24 @@ export default function AppNavbar() {
             Account
           </Link>
 
-          <Link
-            href="/booking"
+          <button
+            type="button"
+            onClick={handleBookingClick}
+            disabled={isCheckingBooking}
             className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
               bookingActive
                 ? "border-primary bg-primary text-white"
                 : "border-border-light bg-white text-text-main hover:bg-background-main"
             }`}
           >
-            Booking
-          </Link>
+            {isCheckingBooking ? "Checking..." : "Booking"}
+          </button>
+
+          {hasActiveVerification ? (
+            <span className="rounded-full border border-green-300 bg-green-50 px-2 py-1 text-xs font-semibold text-green-700">
+              Verified
+            </span>
+          ) : null}
         </div>
       </nav>
     </header>

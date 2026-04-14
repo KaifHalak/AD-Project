@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import Loader from "@/components/loader";
 import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
+import { getCurrentSession } from "@/lib/supabase/auth";
 
 async function loginWithEmailPassword(email, password) {
   const response = await fetch("/api/auth/login", {
@@ -28,10 +30,40 @@ async function loginWithEmailPassword(email, password) {
 
 export default function Home() {
   const router = useRouter();
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function redirectIfAlreadyLoggedIn() {
+      try {
+        const { data } = await getCurrentSession();
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (data?.session) {
+          router.push("/account");
+          return;
+        }
+      } finally {
+        if (isMounted) {
+          setIsCheckingSession(false);
+        }
+      }
+    }
+
+    redirectIfAlreadyLoggedIn();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
 
   /**
    * Submits login details to the API and redirects to accounts page on success.
@@ -86,6 +118,10 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  if (isCheckingSession) {
+    return <Loader />;
   }
 
   return (
