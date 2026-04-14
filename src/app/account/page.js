@@ -170,6 +170,15 @@ export default function AccountPage() {
             </Button>
           ) : null}
 
+          {accountData?.role === "pic" ? (
+            <Button
+              variant="secondary"
+              onClick={() => router.push("/account/assigned-tokens")}
+            >
+              View Assigned Tokens
+            </Button>
+          ) : null}
+
           {!isLoading && errorMessage.includes("No active session") ? (
             <Button variant="secondary" onClick={() => router.push("/")}>
               Back to Login

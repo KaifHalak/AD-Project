@@ -418,6 +418,13 @@ export default function TokenGenerationPage() {
             </p>
           </div>
 
+          <Button
+            variant="secondary"
+            onClick={() => router.push("/account/assigned-tokens")}
+          >
+            View Assigned Tokens
+          </Button>
+
           <Button variant="secondary" onClick={() => router.push("/account")}>
             Back to account
           </Button>
