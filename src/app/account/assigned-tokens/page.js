@@ -317,9 +317,6 @@ export default function AssignedTokensPage() {
             <h1 className="text-3xl font-semibold text-primary">
               Assigned Tokens
             </h1>
-            <p className="text-sm text-text-muted">
-              PIC-only view of all tokens you have assigned.
-            </p>
           </div>
 
           {errorMessage ? (

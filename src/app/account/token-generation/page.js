@@ -264,9 +264,6 @@ export default function TokenGenerationPage() {
           <h1 className="text-3xl font-semibold text-primary">
             Token Generation
           </h1>
-          <p className="text-sm text-text-muted">
-            Only users with PIC role can access this page.
-          </p>
         </div>
 
         {errorMessage ? (
@@ -312,19 +309,19 @@ export default function TokenGenerationPage() {
 
             <div className="grid gap-3 md:grid-cols-3">
               <div className="space-y-1">
-                <Label>Username</Label>
+                <Label className={"font-semibold"}>Username</Label>
                 <p className="text-base text-text-main">
                   {foundUser.username || "-"}
                 </p>
               </div>
               <div className="space-y-1">
-                <Label>Role</Label>
+                <Label className={"font-semibold"}>Role</Label>
                 <p className="text-base text-text-main">
                   {foundUser.role || "-"}
                 </p>
               </div>
               <div className="space-y-1">
-                <Label>Email</Label>
+                <Label className={"font-semibold"}>Email</Label>
                 <p className="break-all text-base text-text-main">
                   {foundUser.email || "-"}
                 </p>

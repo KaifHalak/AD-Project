@@ -93,9 +93,6 @@ export default function AccountPage() {
       <div className="space-y-6">
         <div className="text-center">
           <h1 className="text-3xl font-semibold text-primary">My Account</h1>
-          <p className="mt-2 text-sm text-text-muted">
-            Basic details from the users table
-          </p>
         </div>
 
         {errorMessage ? (
