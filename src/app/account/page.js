@@ -161,6 +161,15 @@ export default function AccountPage() {
             {isLoggingOut ? "Logging out..." : "Log out"}
           </Button>
 
+          {accountData?.role === "pic" ? (
+            <Button
+              variant="secondary"
+              onClick={() => router.push("/account/token-generation")}
+            >
+              Go to Token Generation
+            </Button>
+          ) : null}
+
           {!isLoading && errorMessage.includes("No active session") ? (
             <Button variant="secondary" onClick={() => router.push("/")}>
               Back to Login
