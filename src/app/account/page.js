@@ -161,6 +161,13 @@ export default function AccountPage() {
             {isLoggingOut ? "Logging out..." : "Log out"}
           </Button>
 
+          <Button
+            variant="secondary"
+            onClick={() => router.push("/token-verification")}
+          >
+            Verify PIC Code
+          </Button>
+
           {accountData?.role === "pic" ? (
             <Button
               variant="secondary"
