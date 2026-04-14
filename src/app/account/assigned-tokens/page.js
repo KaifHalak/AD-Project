@@ -306,13 +306,13 @@ export default function AssignedTokensPage() {
   }
 
   if (isPageLoading) {
-    return <Loader text="Loading assigned tokens page..." />;
+    return <Loader fullScreen={false} />;
   }
 
   return (
-    <main className="min-h-screen bg-background-main px-2 py-8 md:px-6 md:py-10">
-      <Card className="w-full max-w-none! border-[3px] md:p-10">
-        <div className="space-y-6">
+    <>
+      <section className="min-h-full w-full rounded-2xl border border-border-light bg-background-main p-5 md:p-8">
+        <div className="w-full space-y-6">
           <div className="space-y-2 text-center">
             <h1 className="text-3xl font-semibold text-primary">
               Assigned Tokens
@@ -336,13 +336,6 @@ export default function AssignedTokensPage() {
 
           <div className="flex flex-col gap-3 md:flex-row">
             <Button
-              variant="secondary"
-              onClick={() => router.push("/account/token-generation")}
-              className="md:w-auto"
-            >
-              Back to Token Generation
-            </Button>
-            <Button
               onClick={handleExpireAll}
               disabled={isExpiringAll || isTableLoading || tokens.length === 0}
               className="md:w-auto"
@@ -365,7 +358,7 @@ export default function AssignedTokensPage() {
                   </th>
                   <th className="px-3 py-3 text-left text-text-main">
                     <SortableHeader
-                      label="Gen Time"
+                      label="Generation Time"
                       column="genTime"
                       sortConfig={sortConfig}
                       onSort={handleSort}
@@ -461,7 +454,7 @@ export default function AssignedTokensPage() {
             </table>
           </div>
         </div>
-      </Card>
+      </section>
 
       {modalToken ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
@@ -489,6 +482,6 @@ export default function AssignedTokensPage() {
           </div>
         </div>
       ) : null}
-    </main>
+    </>
   );
 }
