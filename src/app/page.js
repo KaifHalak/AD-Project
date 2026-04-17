@@ -163,6 +163,14 @@ export default function Home() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
+            <div className="text-right">
+              <Link
+                href="/forgot-password"
+                className="text-sm font-semibold text-primary hover:text-primary-hover"
+              >
+                Forgot password?
+              </Link>
+            </div>
           </div>
 
           {errorMessage ? (
