@@ -219,6 +219,18 @@ export default function TokenVerificationPage() {
             </p>
           </div>
 
+          <div className="rounded-lg border border-border-light bg-white p-4">
+            <h2 className="text-sm font-semibold text-text-main">
+              How to get your token
+            </h2>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-text-muted">
+              <li>Go to the relevant PIC for the lab or equipment.</li>
+              <li>Request a token from the PIC.</li>
+              <li>Provide the email of your registered account.</li>
+              <li>Once your token is assigned, enter it here to verify.</li>
+            </ul>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="picCode">PIC code</Label>
             <Input
