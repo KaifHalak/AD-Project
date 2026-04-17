@@ -1,5 +1,4 @@
 import { createClient } from "@supabase/supabase-js";
-
 /**
  * Creates a Supabase client for server-side usage.
  * Session persistence is disabled because API routes are stateless.

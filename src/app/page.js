@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -9,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import Loader from "@/components/loader";
 import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
 import { getCurrentSession } from "@/lib/supabase/auth";
+
+const REQUIRED_EMAIL_SUFFIX = "@graduate.utm.my";
 
 async function loginWithEmailPassword(email, password) {
   const response = await fetch("/api/auth/login", {
@@ -75,6 +78,11 @@ export default function Home() {
 
     if (!email || !password) {
       setErrorMessage("Please enter both email and password.");
+      return;
+    }
+
+    if (!email.trim().toLowerCase().endsWith(REQUIRED_EMAIL_SUFFIX)) {
+      setErrorMessage(`Email must end with ${REQUIRED_EMAIL_SUFFIX}.`);
       return;
     }
 
@@ -166,6 +174,16 @@ export default function Home() {
           <Button type="submit" disabled={isLoading}>
             {isLoading ? "Logging in..." : "Login"}
           </Button>
+
+          <p className="text-center text-sm text-text-muted">
+            Don&apos;t have an account?{" "}
+            <Link
+              href="/register"
+              className="font-semibold text-primary hover:text-primary-hover"
+            >
+              Register
+            </Link>
+          </p>
         </form>
       </Card>
     </main>
