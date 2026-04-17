@@ -153,6 +153,10 @@ export default function Home() {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
+            <p className="text-xs text-text-muted">
+              Use your <span className="font-semibold">@graduate.utm.my </span>
+              email address.
+            </p>
           </div>
 
           <div className="space-y-2">
