@@ -20,7 +20,7 @@ export default function EquipmentBookingPage() {
 
   const times = [
     "08:00","09:00","10:00","11:00","12:00",
-    "13:00","14:00","15:00","16:00","17:00"
+    "13:00","14:00","15:00","16:00","17:00",
   ];
 
   // ===== 日期处理 =====
@@ -111,59 +111,72 @@ export default function EquipmentBookingPage() {
 const available = isTimeAvailable();
 
   //handle booking
-const handleSubmitBooking = async () => {
+const handleSubmitBooking = async (e) => {
+  e?.preventDefault(); // 🔥 防止 form 重复触发（关键）
+
+  // prevent duplicate submissions
+  if (handleSubmitBooking.loading) return;
+  handleSubmitBooking.loading = true;
+
   const supabase = getSupabaseBrowserClient();
 
-  // 🔥 ① 先检查时间冲突（你已经写好的 available）
-  if (!available) {
-    alert("Time slot not available ❌ Please select another time");
-    return;
-  }
+  try {
+    // check time conflict
+    if (!available) {
+      alert("Time slot not available ❌ Please select another time");
+      return;
+    }
 
-  // 🔥 ② 再检查 token
-  if (!token) {
-    alert("Please enter token");
-    return;
-  }
+    //check token
+    if (!token) {
+      alert("Please enter token");
+      return;
+    }
 
-  // 🔥 ③ 验证 token
-  const { data: tokenData, error: tokenError } = await supabase
-    .from("pic_tokens")
-    .select("*")
-    .eq("token", token)
-    .single();
+    //verify token
+    const { data: tokenData, error: tokenError } = await supabase
+      .from("pic_tokens")
+      .select("*")
+      .eq("token", token)
+      .single();
 
-  if (tokenError || !tokenData) {
-    alert("Invalid token ❌");
-    return;
-  }
+    if (tokenError || !tokenData) {
+      alert("Invalid token ❌");
+      return;
+    }
 
-  // 🔥 ④ 提交 booking
-  const { data, error } = await supabase
-    .from("equipment_bookings")
-    .insert([
-      {
-        equipment_id: id,
-        booking_date: formatDateForDB(currentDate),
-        start_time: `${startTime}:00`,
-        end_time: `${endTime}:00`,
-        status: "pending",
-        user_id: tokenData.assigned_to,
-      },
-    ])
-    .select();
+    //insert equipment booking
+    const { data, error } = await supabase
+      .from("equipment_bookings")
+      .insert([
+        {
+          equipment_id: id,
+          booking_date: formatDateForDB(currentDate),
+          start_time: `${startTime}:00`,
+          end_time: `${endTime}:00`,
+          status: "pending",
+          user_id: tokenData.assigned_to,
+        },
+      ])
+      .select();
 
-  if (error) {
-    console.error(error);
-    alert("Booking failed ❌");
-  } else {
-    alert("Booking submitted! Waiting for approval ⏳");
+    if (error) {
+      console.error(error);
+      alert("Booking failed ❌");
+    } else {
+      alert("Booking submitted! Waiting for approval ⏳");
 
-    setToken("");
-    setUsage("");
+      setToken("");
+      setUsage("");
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Unexpected error ❌");
+  } finally {
+    handleSubmitBooking.loading = false; // 🔥 释放锁
   }
 };
-  
+
   return (
     <div className="bg-[#f3eee7] min-h-screen p-10 space-y-6">
 
@@ -203,7 +216,7 @@ const handleSubmitBooking = async () => {
               onChange={(e) =>
                 setCurrentDate(new Date(e.target.value))
               }
-              onClick={(e) => e.target.showPicker?.()} 
+              onClick={(e) => e.target.showPicker?.()}
               className="border rounded-full px-4 py-2 cursor-pointer"
             />
           </div>
@@ -212,24 +225,33 @@ const handleSubmitBooking = async () => {
         {/* Availability Grid */}
         <div className="overflow-x-auto pb-4 custom-scroll scroll-smooth">
 
-          {/* Time Slots */}
+          {/* 🔥 Time Slots Header */}
           <div className="grid grid-cols-[160px_repeat(10,120px)] gap-4 text-sm text-gray-500 mb-4 min-w-max">
             <div></div>
-            {times.map((t) => (
-              <div key={t} className="text-center">{t}</div>
-            ))}
+
+            {times.map((t) => {
+              // ✅ 修复 NaN 问题
+              const hour = parseInt(t.split(":")[0]);
+              const next = String(hour + 1).padStart(2, "0");
+
+              return (
+                <div key={t} className="text-center font-medium">
+                  {hour}:00 - {next}:00
+                </div>
+              );
+            })}
           </div>
 
           {/* Content */}
           <div className="grid grid-cols-[160px_repeat(10,120px)] gap-4 items-center min-w-max">
 
-            {/* equipment info at left */}
+            {/* equipment info */}
             <div>
               <p className="font-semibold">{equipment.name}</p>
               <p className="text-sm text-gray-400">{equipment.location}</p>
             </div>
 
-            {/* time slots */}
+            {/* 🔥 Time slots (只显示状态) */}
             {times.map((t) => {
               const status = getStatus(t);
 
@@ -245,8 +267,11 @@ const handleSubmitBooking = async () => {
                       : "bg-green-200 text-green-800"
                   }`}
                 >
-                  {status === "booked" && "BOOKED"}
-                  {status === "pending" && "PENDING"}
+                  <div className="font-semibold">
+                    {status === "booked" && "BOOKED"}
+                    {status === "pending" && "PENDING"}
+                    {status === "available" && "AVAILABLE"}
+                  </div>
                 </div>
               );
             })}
