@@ -59,6 +59,7 @@ export default function BookingPage() {
 
         setIsPicBypass(false);
         setVerifiedUntil(verificationResponse.data?.expiresAt || "");
+        router.push("/equipment");
       } catch {
         if (isMounted) {
           router.push("/token-verification?redirect=/booking");
