@@ -1,12 +1,13 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
 
 export default function EquipmentBookingPage() {
   const { id } = useParams();
-
+  const router = useRouter();
   const [equipment, setEquipment] = useState(null);
   const [bookings, setBookings] = useState([]);
 
@@ -14,13 +15,14 @@ export default function EquipmentBookingPage() {
 
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("11:00");
+  const toHour = (t) => parseInt(t.split(":")[0]);
 
   const [usage, setUsage] = useState("");
   const [token, setToken] = useState("");
 
   const times = [
     "08:00","09:00","10:00","11:00","12:00",
-    "13:00","14:00","15:00","16:00","17:00",
+    "13:00","14:00","15:00","16:00","17:00","18:00"
   ];
 
   // ===== 日期处理 =====
@@ -97,16 +99,16 @@ export default function EquipmentBookingPage() {
 
   //  check availability
   const isTimeAvailable = () => {
-  const start = parseInt(startTime);
-  const end = parseInt(endTime);
+    const start = toHour(startTime);
+    const end = toHour(endTime);
 
-  return !bookings.some((b) => {
-    const bStart = parseInt(b.start_time);
-    const bEnd = parseInt(b.end_time);
+    return !bookings.some((b) => {
+      const bStart = toHour(b.start_time);
+      const bEnd = toHour(b.end_time);
 
-    return start < bEnd && end > bStart;
-  });
-};
+      return start < bEnd && end > bStart;
+    });
+  };
 
 const available = isTimeAvailable();
 
@@ -180,6 +182,14 @@ const handleSubmitBooking = async (e) => {
   return (
     <div className="bg-[#f3eee7] min-h-screen p-10 space-y-6">
 
+      {/* 🔙 Back Button */}
+      <button
+        onClick={() => router.back()}
+        className="mb-4 px-4 py-2 bg-white border rounded-full shadow-sm hover:bg-gray-100 transition"
+      >
+        ← Back
+      </button>
+
       {/*01equipment info*/}
       <div className="bg-[#efe8df] p-6 rounded-2xl w-3/4 mx-auto">
         <h1 className="text-2xl font-semibold">{equipment.name}</h1>
@@ -195,7 +205,7 @@ const handleSubmitBooking = async (e) => {
           <div className="flex items-center gap-4">
             <button onClick={() => changeDate(-1)} className="px-3 py-1 border rounded-full">◀</button>
 
-            <h2 className="text-xl font-semibold">
+            <h2 className="text-xl font-semibold whitespace-nowrap">
               {formatDate(currentDate)}
             </h2>
 
@@ -225,59 +235,80 @@ const handleSubmitBooking = async (e) => {
         {/* Availability Grid */}
         <div className="overflow-x-auto pb-4 custom-scroll scroll-smooth">
 
-          {/* 🔥 Time Slots Header */}
-          <div className="grid grid-cols-[160px_repeat(10,120px)] gap-4 text-sm text-gray-500 mb-4 min-w-max">
-            <div></div>
+          {/* 🔥 动态宽度容器（关键） */}
+          <div
+            style={{
+              minWidth: `calc(160px + ${(times.length - 1) * 120}px)`
+            }}
+          >
 
-            {times.map((t) => {
-              // ✅ 修复 NaN 问题
-              const hour = parseInt(t.split(":")[0]);
-              const next = String(hour + 1).padStart(2, "0");
+            {/* 🔥 Time Slots Header */}
+            <div
+              className="grid gap-4 text-sm text-gray-500 mb-4"
+              style={{
+                gridTemplateColumns: `160px repeat(${times.length - 1}, 120px)`
+              }}
+            >
+              <div></div>
 
-              return (
-                <div key={t} className="text-center font-medium">
-                  {hour}:00 - {next}:00
-                </div>
-              );
-            })}
-          </div>
+              {times.map((t, i) => {
+                if (i === times.length - 1) return null; // ❗不显示最后一个
 
-          {/* Content */}
-          <div className="grid grid-cols-[160px_repeat(10,120px)] gap-4 items-center min-w-max">
+                const hour = parseInt(t.split(":")[0]);
+                const next = String(hour + 1).padStart(2, "0");
 
-            {/* equipment info */}
-            <div>
-              <p className="font-semibold">{equipment.name}</p>
-              <p className="text-sm text-gray-400">{equipment.location}</p>
+                return (
+                  <div key={t} className="text-center font-medium">
+                    {hour}:00 - {next}:00
+                  </div>
+                );
+              })}
             </div>
 
-            {/* 🔥 Time slots (只显示状态) */}
-            {times.map((t) => {
-              const status = getStatus(t);
+            {/* 🔥 Content */}
+            <div
+              className="grid gap-4 items-center"
+              style={{
+                gridTemplateColumns: `160px repeat(${times.length - 1}, 120px)`
+              }}
+            >
 
-              return (
-                <div
-                  key={t}
-                  className={`h-24 rounded-2xl flex items-center justify-center
-                  ${
-                    status === "booked"
-                      ? "bg-pink-300 text-pink-800"
-                      : status === "pending"
-                      ? "bg-purple-300 text-purple-800"
-                      : "bg-green-200 text-green-800"
-                  }`}
-                >
-                  <div className="font-semibold">
-                    {status === "booked" && "BOOKED"}
-                    {status === "pending" && "PENDING"}
-                    {status === "available" && "AVAILABLE"}
+              {/* equipment info */}
+              <div>
+                <p className="font-semibold">{equipment.name}</p>
+                <p className="text-sm text-gray-400">{equipment.location}</p>
+              </div>
+
+              {/* 🔥 Time slots */}
+              {times.map((t, i) => {
+                if (i === times.length - 1) return null; // ❗保持一致
+
+                const status = getStatus(t);
+
+                return (
+                  <div
+                    key={t}
+                    className={`h-24 rounded-2xl flex items-center justify-center
+                    ${
+                      status === "booked"
+                        ? "bg-pink-300 text-pink-800"
+                        : status === "pending"
+                        ? "bg-purple-300 text-purple-800"
+                        : "bg-green-200 text-green-800"
+                    }`}
+                  >
+                    <div className="font-semibold">
+                      {status === "booked" && "BOOKED"}
+                      {status === "pending" && "PENDING"}
+                      {status === "available" && "AVAILABLE"}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+
+            </div>
 
           </div>
-
         </div>
       </div>
 
