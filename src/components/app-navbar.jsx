@@ -13,7 +13,9 @@ export default function AppNavbar() {
   const [hasActiveVerification, setHasActiveVerification] = useState(false);
 
   const accountActive = pathname.startsWith("/account");
-  const bookingActive = pathname.startsWith("/booking");
+  const bookingActive =
+    pathname.startsWith("/booking") && !pathname.startsWith("/booking-records");
+  const bookingRecordsActive = pathname.startsWith("/booking-records");
 
   useEffect(() => {
     let isMounted = true;
@@ -142,6 +144,17 @@ export default function AppNavbar() {
           >
             {isCheckingBooking ? "Checking..." : "Booking"}
           </button>
+
+          <Link
+            href="/booking-records"
+            className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+              bookingRecordsActive
+                ? "border-primary bg-primary text-white"
+                : "border-border-light bg-white text-text-main hover:bg-background-main"
+            }`}
+          >
+            Booking Records
+          </Link>
 
           {hasActiveVerification ? (
             <span className="rounded-full border border-green-300 bg-green-50 px-2 py-1 text-xs font-semibold text-green-700">
