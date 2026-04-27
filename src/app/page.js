@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import Loader from "@/components/loader";
 import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
-import { getCurrentSession } from "@/lib/supabase/auth";
+import { getCurrentUser, signOutUser } from "@/lib/supabase/auth";
 
 const REQUIRED_EMAIL_SUFFIX = "@graduate.utm.my";
 
@@ -31,6 +31,14 @@ async function loginWithEmailPassword(email, password) {
   };
 }
 
+async function clearLocalAuthSession() {
+  try {
+    await signOutUser();
+  } catch {
+    // Ignore cleanup failures; the login page should still render.
+  }
+}
+
 export default function Home() {
   const router = useRouter();
   const [isCheckingSession, setIsCheckingSession] = useState(true);
@@ -44,16 +52,20 @@ export default function Home() {
 
     async function redirectIfAlreadyLoggedIn() {
       try {
-        const { data } = await getCurrentSession();
+        const { data, error } = await getCurrentUser();
 
         if (!isMounted) {
           return;
         }
 
-        if (data?.session) {
-          router.push("/account");
+        if (!error && data?.user) {
+          router.replace("/account");
           return;
         }
+
+        await clearLocalAuthSession();
+      } catch {
+        await clearLocalAuthSession();
       } finally {
         if (isMounted) {
           setIsCheckingSession(false);
@@ -120,7 +132,7 @@ export default function Home() {
         return;
       }
 
-      router.push("/account");
+      router.replace("/account");
     } catch {
       setErrorMessage("Server error. Please try again.");
     } finally {

@@ -1,12 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Loader from "@/components/loader";
-import { getCurrentSession, getCurrentUser } from "@/lib/supabase/auth";
-import { getRecordByColumn } from "@/lib/supabase/db";
+import { useAccountSession } from "../account-session-context";
 
 function formatDate(dateISOString) {
   if (!dateISOString) {
@@ -70,15 +67,12 @@ function SortableHeader({ label, column, sortConfig, onSort }) {
 }
 
 export default function AssignedTokensPage() {
-  const router = useRouter();
+  const { accessToken } = useAccountSession();
 
   const [isPageLoading, setIsPageLoading] = useState(true);
   const [isTableLoading, setIsTableLoading] = useState(false);
   const [isExpiringOne, setIsExpiringOne] = useState(false);
   const [isExpiringAll, setIsExpiringAll] = useState(false);
-
-  const [accessToken, setAccessToken] = useState("");
-
   const [tokens, setTokens] = useState([]);
   const [sortConfig, setSortConfig] = useState({
     column: "genTime",
@@ -93,56 +87,13 @@ export default function AssignedTokensPage() {
   useEffect(() => {
     let isMounted = true;
 
-    async function loadPageAndTokens() {
+    async function loadTokens() {
       setIsPageLoading(true);
       setErrorMessage("");
       setActionMessage("");
 
       try {
-        const { data: sessionData, error: sessionError } =
-          await getCurrentSession();
-        const { data: authData, error: authError } = await getCurrentUser();
-
-        if (!isMounted) {
-          return;
-        }
-
-        if (
-          sessionError ||
-          authError ||
-          !sessionData?.session ||
-          !authData?.user ||
-          !sessionData.session.access_token
-        ) {
-          router.push("/");
-          return;
-        }
-
-        const { data: userProfile, error: profileError } =
-          await getRecordByColumn(
-            "users",
-            "email",
-            authData.user.email,
-            "id, username, email, role",
-          );
-
-        if (!isMounted) {
-          return;
-        }
-
-        if (profileError || !userProfile) {
-          setErrorMessage("Could not load your account details.");
-          return;
-        }
-
-        if (userProfile.role !== "pic") {
-          router.push("/account");
-          return;
-        }
-
-        const token = sessionData.session.access_token;
-        setAccessToken(token);
-        await fetchTokens(token, isMounted);
+        await fetchTokens(accessToken, isMounted);
       } catch (error) {
         console.error(error);
         if (isMounted) {
@@ -155,12 +106,12 @@ export default function AssignedTokensPage() {
       }
     }
 
-    loadPageAndTokens();
+    loadTokens();
 
     return () => {
       isMounted = false;
     };
-  }, [router]);
+  }, [accessToken]);
 
   const sortedTokens = useMemo(
     () => sortTokens(tokens, sortConfig),

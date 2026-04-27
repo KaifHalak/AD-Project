@@ -1,13 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import Loader from "@/components/loader";
-import { getCurrentSession, getCurrentUser } from "@/lib/supabase/auth";
-import { getRecordByColumn } from "@/lib/supabase/db";
+import { useAccountSession } from "../account-session-context";
 
 const TOKEN_LENGTH = 6;
 const TOKEN_CHARACTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -36,13 +33,10 @@ function getExpiryAtEndOfDay(daysAhead = EXPIRY_DAYS_AHEAD) {
 }
 
 export default function TokenGenerationPage() {
-  const router = useRouter();
+  const { accessToken } = useAccountSession();
 
-  const [isPageLoading, setIsPageLoading] = useState(true);
   const [isFindingUser, setIsFindingUser] = useState(false);
   const [isAssigningToken, setIsAssigningToken] = useState(false);
-
-  const [accessToken, setAccessToken] = useState("");
 
   const [emailInput, setEmailInput] = useState("");
   const [foundUser, setFoundUser] = useState(null);
@@ -53,74 +47,6 @@ export default function TokenGenerationPage() {
   const [assignMessage, setAssignMessage] = useState("");
   const [assignErrorMessage, setAssignErrorMessage] = useState("");
   const [hasAssignedCurrentToken, setHasAssignedCurrentToken] = useState(false);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadPage() {
-      setIsPageLoading(true);
-      setErrorMessage("");
-
-      try {
-        const { data: sessionData, error: sessionError } =
-          await getCurrentSession();
-        const { data: authData, error: authError } = await getCurrentUser();
-
-        if (!isMounted) {
-          return;
-        }
-
-        if (
-          sessionError ||
-          authError ||
-          !sessionData?.session ||
-          !authData?.user
-        ) {
-          router.push("/");
-          return;
-        }
-
-        const { data: userProfile, error: profileError } =
-          await getRecordByColumn(
-            "users",
-            "email",
-            authData.user.email,
-            "id, username, email, role",
-          );
-
-        if (!isMounted) {
-          return;
-        }
-
-        if (profileError || !userProfile) {
-          setErrorMessage("Could not load your account details.");
-          return;
-        }
-
-        if (userProfile.role !== "pic") {
-          router.push("/account");
-          return;
-        }
-
-        setAccessToken(sessionData.session.access_token || "");
-      } catch (error) {
-        console.error(error);
-        if (isMounted) {
-          setErrorMessage("Server error while loading this page.");
-        }
-      } finally {
-        if (isMounted) {
-          setIsPageLoading(false);
-        }
-      }
-    }
-
-    loadPage();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [router]);
 
   const canGenerateToken = useMemo(() => !!foundUser, [foundUser]);
   const canAssign = useMemo(
@@ -251,10 +177,6 @@ export default function TokenGenerationPage() {
     } finally {
       setIsAssigningToken(false);
     }
-  }
-
-  if (isPageLoading) {
-    return <Loader fullScreen={false} />;
   }
 
   return (

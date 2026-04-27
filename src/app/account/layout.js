@@ -4,8 +4,30 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import Loader from "@/components/loader";
-import { getCurrentUser, signOutUser } from "@/lib/supabase/auth";
+import { AccountSessionProvider } from "./account-session-context";
+import {
+  getCurrentSession,
+  getCurrentUser,
+  signOutUser,
+} from "@/lib/supabase/auth";
 import { getRecordByColumn } from "@/lib/supabase/db";
+
+const PIC_ONLY_ROUTES = [
+  "/account/token-generation",
+  "/account/assigned-tokens",
+];
+
+function isPicOnlyRoute(pathname) {
+  return PIC_ONLY_ROUTES.some((route) => pathname.startsWith(route));
+}
+
+async function clearLocalAuthSession() {
+  try {
+    await signOutUser();
+  } catch {
+    // Ignore cleanup failures; redirecting to login is still the safest fallback.
+  }
+}
 
 function SidebarLink({ active, onClick, children }) {
   return (
@@ -29,12 +51,12 @@ export default function AccountLayout({ children }) {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [role, setRole] = useState("");
+  const [accountSession, setAccountSession] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
 
-    async function loadSidebarRole() {
+    async function loadAccountSession() {
       setIsLoading(true);
 
       try {
@@ -45,7 +67,21 @@ export default function AccountLayout({ children }) {
         }
 
         if (authError || !authData?.user?.email) {
-          router.push("/");
+          await clearLocalAuthSession();
+          router.replace("/");
+          return;
+        }
+
+        const { data: sessionData, error: sessionError } =
+          await getCurrentSession();
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (sessionError || !sessionData?.session?.access_token) {
+          await clearLocalAuthSession();
+          router.replace("/");
           return;
         }
 
@@ -60,15 +96,31 @@ export default function AccountLayout({ children }) {
           return;
         }
 
-        if (profileError || !profile) {
-          router.push("/");
-          return;
+        const nextAccountSession = {
+          user: authData.user,
+          accessToken: sessionData.session.access_token,
+          profile: profile || null,
+          profileErrorMessage: "",
+        };
+
+        if (profileError) {
+          nextAccountSession.profileErrorMessage =
+            "Could not load account details from users table.";
+        } else if (!profile) {
+          nextAccountSession.profileErrorMessage =
+            "No account details found for this user.";
         }
 
-        setRole(profile.role || "");
+        setAccountSession(nextAccountSession);
+
+        if (isPicOnlyRoute(pathname) && profile?.role !== "pic") {
+          router.replace("/account");
+          return;
+        }
       } catch {
         if (isMounted) {
-          router.push("/");
+          await clearLocalAuthSession();
+          router.replace("/");
         }
       } finally {
         if (isMounted) {
@@ -77,20 +129,20 @@ export default function AccountLayout({ children }) {
       }
     }
 
-    loadSidebarRole();
+    loadAccountSession();
 
     return () => {
       isMounted = false;
     };
-  }, [router]);
+  }, [pathname, router]);
 
   async function handleLogout() {
     try {
       setIsLoggingOut(true);
       await signOutUser();
-      router.push("/");
+      router.replace("/");
     } catch {
-      router.push("/");
+      router.replace("/");
     } finally {
       setIsLoggingOut(false);
     }
@@ -100,53 +152,65 @@ export default function AccountLayout({ children }) {
     return <Loader />;
   }
 
+  if (!accountSession) {
+    return <Loader />;
+  }
+
+  const role = accountSession.profile?.role || "";
+
+  if (isPicOnlyRoute(pathname) && role !== "pic") {
+    return <Loader />;
+  }
+
   return (
-    <main className="min-h-full bg-background-main px-3 py-4 md:px-6 md:py-6">
-      <div className="flex min-h-[calc(100vh-7rem)] flex-col gap-4 md:flex-row">
-        <aside className="w-full shrink-0 rounded-2xl border border-border-light bg-panel p-4 md:w-64">
-          <div className="flex h-full min-h-64 flex-col">
-            <div className="space-y-2">
-              <SidebarLink
-                active={pathname === "/account"}
-                onClick={() => router.push("/account")}
-              >
-                Account
-              </SidebarLink>
-
-              {role === "pic" ? (
+    <AccountSessionProvider value={accountSession}>
+      <main className="min-h-full bg-background-main px-3 py-4 md:px-6 md:py-6">
+        <div className="flex min-h-[calc(100vh-7rem)] flex-col gap-4 md:flex-row">
+          <aside className="w-full shrink-0 rounded-2xl border border-border-light bg-panel p-4 md:w-64">
+            <div className="flex h-full min-h-64 flex-col">
+              <div className="space-y-2">
                 <SidebarLink
-                  active={pathname.startsWith("/account/token-generation")}
-                  onClick={() => router.push("/account/token-generation")}
+                  active={pathname === "/account"}
+                  onClick={() => router.push("/account")}
                 >
-                  Generate Token
+                  Account
                 </SidebarLink>
-              ) : null}
 
-              {role === "pic" ? (
-                <SidebarLink
-                  active={pathname.startsWith("/account/assigned-tokens")}
-                  onClick={() => router.push("/account/assigned-tokens")}
+                {role === "pic" ? (
+                  <SidebarLink
+                    active={pathname.startsWith("/account/token-generation")}
+                    onClick={() => router.push("/account/token-generation")}
+                  >
+                    Generate Token
+                  </SidebarLink>
+                ) : null}
+
+                {role === "pic" ? (
+                  <SidebarLink
+                    active={pathname.startsWith("/account/assigned-tokens")}
+                    onClick={() => router.push("/account/assigned-tokens")}
+                  >
+                    View Assigned Tokens
+                  </SidebarLink>
+                ) : null}
+              </div>
+
+              <div className="mt-4 md:mt-auto">
+                <Button
+                  type="button"
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
+                  className="h-10 w-full rounded-lg text-sm"
                 >
-                  View Assigned Tokens
-                </SidebarLink>
-              ) : null}
+                  {isLoggingOut ? "Logging out..." : "Logout"}
+                </Button>
+              </div>
             </div>
+          </aside>
 
-            <div className="mt-4 md:mt-auto">
-              <Button
-                type="button"
-                onClick={handleLogout}
-                disabled={isLoggingOut}
-                className="h-10 w-full rounded-lg text-sm"
-              >
-                {isLoggingOut ? "Logging out..." : "Logout"}
-              </Button>
-            </div>
-          </div>
-        </aside>
-
-        <section className="min-w-0 flex-1">{children}</section>
-      </div>
-    </main>
+          <section className="min-w-0 flex-1">{children}</section>
+        </div>
+      </main>
+    </AccountSessionProvider>
   );
 }
