@@ -174,15 +174,15 @@ export default function LabBookingPage() {
 
   function getFilterLabel() {
     if (selectedLabIds.length === 0) {
-      return "Labs: Show All";
+      return "All Labs";
     }
 
     if (selectedLabIds.length === 1) {
       const selectedLab = labs.find((lab) => lab.id === selectedLabIds[0]);
-      return `Labs: ${selectedLab?.name || "1 Lab"}`;
+      return selectedLab?.name || "1 Lab";
     }
 
-    return `Labs: ${selectedLabIds.length} Labs Selected`;
+    return `${selectedLabIds.length} Labs`;
   }
 
   function toggleLab(labId) {
@@ -231,42 +231,39 @@ export default function LabBookingPage() {
           <div className="rounded-xl border border-border-light bg-white p-4 md:p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex items-center gap-3">
-                <Button
+                <button
                   type="button"
-                  variant="secondary"
                   onClick={() => changeDate(-1)}
-                  className="h-10 w-10 px-0"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-border-light bg-transparent text-sm font-semibold text-text-main transition-colors hover:bg-white focus:border-primary focus:outline-none"
                   aria-label="Previous day"
                 >
                   &lt;
-                </Button>
+                </button>
 
                 <h2 className="text-xl font-semibold text-text-main">
                   {formatDisplayDate(selectedDate)}
                 </h2>
 
-                <Button
+                <button
                   type="button"
-                  variant="secondary"
                   onClick={() => changeDate(1)}
-                  className="h-10 w-10 px-0"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-border-light bg-transparent text-sm font-semibold text-text-main transition-colors hover:bg-white focus:border-primary focus:outline-none"
                   aria-label="Next day"
                 >
                   &gt;
-                </Button>
+                </button>
               </div>
 
               <div className="flex flex-col gap-3 sm:flex-row">
                 <div className="relative" ref={dropdownRef}>
-                  <Button
+                  <button
                     type="button"
-                    variant="secondary"
                     onClick={() => setIsDropdownOpen((current) => !current)}
-                    className="justify-between sm:w-64"
+                    className="flex h-9 min-w-32 items-center justify-between gap-2 rounded-lg border border-border-light bg-transparent px-3 text-xs font-semibold text-text-main transition-colors hover:bg-white focus:border-primary focus:outline-none"
                   >
-                    {getFilterLabel()}
+                    <span className="max-w-36 truncate">{getFilterLabel()}</span>
                     <span className="ml-2 text-xs">v</span>
-                  </Button>
+                  </button>
 
                   {isDropdownOpen ? (
                     <div className="absolute right-0 z-50 mt-2 max-h-72 w-72 overflow-y-auto rounded-xl border border-border-light bg-white p-2 shadow-sm">
@@ -315,14 +312,13 @@ export default function LabBookingPage() {
                   ) : null}
                 </div>
 
-                <Button
+                <button
                   type="button"
-                  variant="secondary"
                   onClick={() => setSelectedDate(new Date())}
-                  className="w-auto"
+                  className="h-9 rounded-lg border border-border-light bg-transparent px-3 text-xs font-semibold uppercase text-text-main transition-colors hover:bg-white focus:border-primary focus:outline-none"
                 >
                   Today
-                </Button>
+                </button>
 
                 <Input
                   type="date"
@@ -332,7 +328,7 @@ export default function LabBookingPage() {
                     setSelectedDate(new Date(`${event.target.value}T00:00:00`))
                   }
                   onClick={(event) => event.target.showPicker?.()}
-                  className="cursor-pointer sm:w-44"
+                  className="h-9 cursor-pointer rounded-lg bg-transparent text-xs sm:w-40"
                 />
               </div>
             </div>
