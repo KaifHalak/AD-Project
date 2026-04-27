@@ -12,19 +12,19 @@ export async function POST(request) {
 
     if (!accessToken) {
       return NextResponse.json(
-        { error: "Please log in before booking equipment." },
+        { error: "Please log in before booking a lab." },
         { status: 401 },
       );
     }
 
     const body = await request.json();
-    const equipmentId = body?.equipmentId;
+    const labId = body?.labId;
     const bookingDate = body?.bookingDate;
     const startTime = body?.startTime;
     const endTime = body?.endTime;
     const picCode = body?.picCode?.trim()?.toUpperCase();
 
-    if (!equipmentId || !bookingDate || !startTime || !endTime) {
+    if (!labId || !bookingDate || !startTime || !endTime) {
       return NextResponse.json(
         { error: "Missing required booking fields." },
         { status: 400 },
@@ -44,7 +44,7 @@ export async function POST(request) {
       error: requesterError,
     } = await getRequesterProfile(
       accessToken,
-      "Please log in before booking equipment.",
+      "Please log in before booking a lab.",
     );
 
     if (requesterError) {
@@ -68,21 +68,31 @@ export async function POST(request) {
     }
 
     const admin = getSupabaseAdminClient();
-    const { data: conflict, error: conflictError } = await admin
-      .from("equipment_bookings")
+    const { data: lab, error: labError } = await admin
+      .from("labs")
       .select("id")
-      .eq("equipment_id", equipmentId)
+      .eq("id", labId)
+      .maybeSingle();
+
+    if (labError || !lab) {
+      return NextResponse.json({ error: "Lab not found." }, { status: 404 });
+    }
+
+    const { data: conflict, error: conflictError } = await admin
+      .from("lab_bookings")
+      .select("id")
+      .eq("lab_id", labId)
       .eq("booking_date", bookingDate)
       .lt("start_time", endTime)
       .gt("end_time", startTime)
-      .neq("status", "cancelled")
+      .neq("status", "rejected")
       .limit(1)
       .maybeSingle();
 
     if (conflictError) {
-      console.error("Error checking equipment booking conflict:", conflictError);
+      console.error("Error checking lab booking conflict:", conflictError);
       return NextResponse.json(
-        { error: "Could not check equipment availability." },
+        { error: "Could not check lab availability." },
         { status: 500 },
       );
     }
@@ -95,9 +105,9 @@ export async function POST(request) {
     }
 
     const { data: booking, error: insertError } = await admin
-      .from("equipment_bookings")
+      .from("lab_bookings")
       .insert({
-        equipment_id: equipmentId,
+        lab_id: labId,
         booking_date: bookingDate,
         start_time: startTime,
         end_time: endTime,
@@ -108,7 +118,7 @@ export async function POST(request) {
       .maybeSingle();
 
     if (insertError) {
-      console.error("Error creating equipment booking:", insertError);
+      console.error("Error creating lab booking:", insertError);
       return NextResponse.json(
         { error: "Booking failed. Please try again." },
         { status: 500 },
@@ -116,13 +126,13 @@ export async function POST(request) {
     }
 
     return NextResponse.json(
-      { message: "Booking submitted. Waiting for approval.", booking },
+      { message: "Lab booking submitted. Waiting for approval.", booking },
       { status: 201 },
     );
   } catch (error) {
-    console.error("Error in POST /api/equipment-bookings:", error);
+    console.error("Error in POST /api/lab-bookings:", error);
     return NextResponse.json(
-      { error: "Unexpected error while booking equipment." },
+      { error: "Unexpected error while booking a lab." },
       { status: 500 },
     );
   }
