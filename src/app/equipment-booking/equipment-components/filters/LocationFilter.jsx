@@ -13,12 +13,10 @@ export default function LocationFilter({ selected, setSelected }) {
     const supabase = getSupabaseBrowserClient();
 
     async function fetchLocations() {
-      const { data } = await supabase
-        .from("equipment")
-        .select("location");
+      const { data } = await supabase.from("equipment").select("location");
 
       const unique = [
-        ...new Set(data.map(i => i.location).filter(Boolean))
+        ...new Set((data || []).map((item) => item.location).filter(Boolean)),
       ];
 
       setLocations(unique);
@@ -27,7 +25,7 @@ export default function LocationFilter({ selected, setSelected }) {
     fetchLocations();
   }, []);
 
-  // clear timer
+  // Clear delayed close timer when the component unmounts.
   useEffect(() => {
     return () => {
       if (timerRef.current) {
@@ -38,7 +36,7 @@ export default function LocationFilter({ selected, setSelected }) {
 
   return (
     <div
-      className="relative w-60"
+      className="relative w-full md:w-60"
       onMouseEnter={() => {
         if (timerRef.current) {
           clearTimeout(timerRef.current);
@@ -47,50 +45,47 @@ export default function LocationFilter({ selected, setSelected }) {
       onMouseLeave={() => {
         timerRef.current = setTimeout(() => {
           setOpen(false);
-        }, 500); //  can adjust 2000
+        }, 500);
       }}
     >
-      
-      {/*button*/}
-      <div
+      <button
+        type="button"
         onClick={() => setOpen(!open)}
-        className="px-5 py-4 rounded-full border cursor-pointer flex justify-between items-center bg-white hover:border-pink-500"
+        className="flex h-11 w-full items-center justify-between rounded-xl border border-border-light bg-white px-3 text-left text-sm text-text-main outline-none transition-colors hover:border-primary focus:border-primary"
       >
         <span>{selected || "All Locations"}</span>
-        <span>▼</span>
-      </div>
+        <span className="text-xs text-text-muted">▼</span>
+      </button>
 
-      {/*dropdown*/}
+      {/* dropdown */}
       {open && (
-        <div className="absolute mt-2 w-full bg-white border rounded-xl shadow-md z-50 max-h-60 overflow-y-auto">
-          
-          {/* All */}
-          <div
+        <div className="absolute z-50 mt-2 max-h-60 w-full overflow-y-auto rounded-xl border border-border-light bg-white shadow-sm">
+          <button
+            type="button"
             onClick={() => {
-              setSelected(null);
+              setSelected("All Locations");
               setOpen(false);
             }}
-            className="px-4 py-3 cursor-pointer hover:bg-pink-100"
+            className="w-full px-4 py-3 text-left text-sm text-text-main transition-colors hover:bg-background-main hover:text-primary"
           >
             All Locations
-          </div>
+          </button>
 
-          {/*list */}
-          {locations.map((l, i) => (
-            <div
-              key={i}
+          {locations.map((location) => (
+            <button
+              type="button"
+              key={location}
               onClick={() => {
-                setSelected(l);
+                setSelected(location);
                 setOpen(false);
               }}
-              className="px-4 py-3 cursor-pointer hover:bg-pink-100"
+              className="w-full px-4 py-3 text-left text-sm text-text-main transition-colors hover:bg-background-main hover:text-primary"
             >
-              {l}
-            </div>
+              {location}
+            </button>
           ))}
         </div>
       )}
-
     </div>
   );
 }

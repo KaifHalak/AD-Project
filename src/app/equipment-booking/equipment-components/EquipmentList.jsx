@@ -12,9 +12,7 @@ export default function EquipmentList({ search, course, location }) {
     const supabase = getSupabaseBrowserClient();
 
     async function fetchData() {
-      const { data, error } = await supabase
-        .from("equipment")
-        .select("*");
+      const { data, error } = await supabase.from("equipment").select("*");
 
       if (error) {
         console.error(error);
@@ -44,20 +42,27 @@ export default function EquipmentList({ search, course, location }) {
     return matchSearch && matchCourse && matchLocation;
   });
 
-  if (loading) return <p>Loading equipments...</p>;
+  if (loading) {
+    return (
+      <p className="rounded-lg border border-border-light bg-white px-3 py-4 text-sm text-text-muted">
+        Loading equipment...
+      </p>
+    );
+  }
 
   return (
-    <div>
-      <p className="text-gray-500 mb-4">
-        Showing {filtered.length} equipments
+    <div className="space-y-4">
+      <p className="text-sm text-text-muted">
+        Showing {filtered.length} equipment item(s)
       </p>
 
-      {/* No results message */}
       {filtered.length === 0 && (
-        <p className="text-gray-400">No equipment found</p>
+        <p className="rounded-lg border border-border-light bg-white px-3 py-4 text-sm text-text-muted">
+          No equipment found.
+        </p>
       )}
 
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {filtered.map((item) => (
           <EquipmentCard key={item.id} item={item} />
         ))}

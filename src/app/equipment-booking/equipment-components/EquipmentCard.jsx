@@ -8,13 +8,13 @@ export default function EquipmentCard({ item }) {
   const getStatusStyle = () => {
     switch (item.status) {
       case "available":
-        return "bg-green-100 text-green-700";
+        return "border-green-200 bg-green-50 text-green-700";
       case "in_use":
-        return "bg-pink-200 text-pink-700";
+        return "border-primary/20 bg-white text-primary";
       case "maintenance":
-        return "bg-yellow-200 text-yellow-700";
+        return "border-yellow-200 bg-yellow-50 text-yellow-700";
       default:
-        return "bg-gray-100 text-gray-600";
+        return "border-border-light bg-white text-text-muted";
     }
   };
 
@@ -31,62 +31,56 @@ export default function EquipmentCard({ item }) {
     }
   };
 
-const handleBooking = () => {
-  router.push(`/equipment/${item.id}`);
-};
+  const handleBooking = () => {
+    router.push(`/equipment-booking/${item.id}`);
+  };
 
   return (
-    <div
-      onClick={handleBooking} 
-      className="bg-[#f8f5f1] rounded-3xl p-6 shadow-sm border border-gray-200 hover:border-pink-400 hover:shadow-md transition cursor-pointer"
+    <button
+      type="button"
+      onClick={handleBooking}
+      className="h-full rounded-xl border border-border-light bg-white p-4 text-left transition-colors hover:border-primary focus:border-primary focus:outline-none md:p-5"
     >
-      {/*top*/}
-      <div className="flex justify-between items-center mb-5">
-        <div className="w-14 h-14 bg-pink-100 rounded-2xl flex items-center justify-center text-2xl">
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-primary/10 bg-background-main text-2xl">
           🔬
         </div>
 
         <span
-          className={`px-4 py-1 text-xs rounded-full font-semibold tracking-wide ${getStatusStyle()}`}
+          className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusStyle()}`}
         >
           {getStatusText()}
         </span>
       </div>
 
-      {/*name*/}
-      <h2 className="text-xl font-semibold text-gray-800">
-        {item.name}
-      </h2>
+      <h2 className="text-xl font-semibold text-text-main">{item.name}</h2>
 
-      <p className="text-sm text-gray-400 mb-3">
-        ID: {item.id}
-      </p>
+      <p className="mb-3 text-sm text-text-muted">ID: {item.id}</p>
 
-      {/*description*/}
-      <p className="text-gray-600 text-sm mb-4 leading-relaxed">
+      <p className="mb-4 text-sm leading-relaxed text-text-muted">
         {item.description}
       </p>
 
-      {/*info*/}
-      <div className="text-sm text-gray-500 space-y-2 mb-4">
+      <div className="mb-4 space-y-2 text-sm text-text-muted">
         <p className="flex items-center gap-2">
-          🎓 {item.course}
+          <span aria-hidden="true">🎓</span>
+          {item.course || "-"}
         </p>
         <p className="flex items-center gap-2">
-          📍 {item.location}
+          <span aria-hidden="true">📍</span>
+          {item.location || "-"}
         </p>
       </div>
 
-      <hr className="my-4 border-gray-200" />
+      <hr className="my-4 border-border-light" />
 
-      {/*price*/}
-      <p className="text-xs text-gray-400 tracking-wide">
+      <p className="text-xs font-semibold tracking-wide text-text-muted">
         EST. PRICE
       </p>
 
-      <p className="text-pink-600 font-bold text-xl">
+      <p className="text-xl font-semibold text-primary">
         ${item.price_per_hour}/hr
       </p>
-    </div>
+    </button>
   );
 }

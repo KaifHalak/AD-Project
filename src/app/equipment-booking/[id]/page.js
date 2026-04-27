@@ -1,9 +1,11 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { getCurrentSession } from "@/lib/supabase/auth";
 import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export default function EquipmentBookingPage() {
   const { id } = useParams();
@@ -19,6 +21,9 @@ export default function EquipmentBookingPage() {
 
   const [usage, setUsage] = useState("");
   const [token, setToken] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
 
   const times = [
     "08:00","09:00","10:00","11:00","12:00",
@@ -75,7 +80,17 @@ export default function EquipmentBookingPage() {
     fetchBookings();
   }, [id, currentDate]);
 
-  if (!equipment) return <p>Loading...</p>;
+  if (!equipment) {
+    return (
+      <main className="min-h-full bg-background-main px-3 py-4 md:px-6 md:py-6">
+        <section className="rounded-2xl border border-border-light bg-background-main p-5 md:p-8">
+          <p className="rounded-lg border border-border-light bg-white px-3 py-4 text-sm text-text-muted">
+            Loading equipment...
+          </p>
+        </section>
+      </main>
+    );
+  }
 
   //status
   const getStatus = (time) => {
@@ -110,399 +125,400 @@ export default function EquipmentBookingPage() {
     });
   };
 
-const available = isTimeAvailable();
+  const available = isTimeAvailable();
 
   //handle booking
-const handleSubmitBooking = async (e) => {
-  e?.preventDefault(); // 🔥 防止 form 重复触发（关键）
+  const handleSubmitBooking = async (e) => {
+    e?.preventDefault();
 
-  // prevent duplicate submissions
-  if (handleSubmitBooking.loading) return;
-  handleSubmitBooking.loading = true;
+    if (isSubmitting) return;
 
-  const supabase = getSupabaseBrowserClient();
+    setErrorMessage("");
+    setSuccessMessage("");
 
-  try {
-    // check time conflict
-    if (!available) {
-      alert("Time slot not available ❌ Please select another time");
-      return;
-    }
+    const formattedToken = token.trim().toUpperCase();
 
-    //check token
-    if (!token) {
-      alert("Please enter token");
-      return;
-    }
+    try {
+      setIsSubmitting(true);
 
-    //verify token
-    const { data: tokenData, error: tokenError } = await supabase
-      .from("pic_tokens")
-      .select("*")
-      .eq("token", token)
-      .single();
+      if (!available) {
+        setErrorMessage("Time slot not available. Please select another time.");
+        return;
+      }
 
-    if (tokenError || !tokenData) {
-      alert("Invalid token ❌");
-      return;
-    }
+      if (!formattedToken) {
+        setErrorMessage("Please enter your PIC token.");
+        return;
+      }
 
-    //insert equipment booking
-    const { data, error } = await supabase
-      .from("equipment_bookings")
-      .insert([
-        {
-          equipment_id: id,
-          booking_date: formatDateForDB(currentDate),
-          start_time: `${startTime}:00`,
-          end_time: `${endTime}:00`,
-          status: "pending",
-          user_id: tokenData.assigned_to,
+      const { data: sessionData } = await getCurrentSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      if (!accessToken) {
+        setErrorMessage("Please log in before booking equipment.");
+        return;
+      }
+
+      const bookingResponse = await fetch("/api/equipment-bookings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
         },
-      ])
-      .select();
+        body: JSON.stringify({
+          equipmentId: id,
+          bookingDate: formatDateForDB(currentDate),
+          startTime: `${startTime}:00`,
+          endTime: `${endTime}:00`,
+          picCode: formattedToken,
+        }),
+      });
 
-    if (error) {
-      console.error(error);
-      alert("Booking failed ❌");
-    } else {
-      alert("Booking submitted! Waiting for approval ⏳");
+      const bookingData = await bookingResponse.json();
 
+      if (!bookingResponse.ok) {
+        setErrorMessage(
+          bookingData?.error || "Booking failed. Please try again.",
+        );
+        return;
+      }
+
+      if (!bookingData?.booking) {
+        setErrorMessage("Booking submitted, but booking details are missing.");
+        return;
+      }
+
+      setSuccessMessage(
+        bookingData.message || "Booking submitted. Waiting for approval.",
+      );
+      setBookings((currentBookings) => [
+        ...currentBookings,
+        bookingData.booking,
+      ]);
       setToken("");
       setUsage("");
+    } catch (err) {
+      console.error(err);
+      setErrorMessage("Unexpected error while booking equipment.");
+    } finally {
+      setIsSubmitting(false);
     }
-  } catch (err) {
-    console.error(err);
-    alert("Unexpected error ❌");
-  } finally {
-    handleSubmitBooking.loading = false; // 🔥 释放锁
-  }
-};
+  };
 
   return (
-    <div className="bg-[#f3eee7] min-h-screen p-10 space-y-6">
-
-      {/* 🔙 Back Button */}
-      <button
-        onClick={() => router.back()}
-        className="mb-4 px-4 py-2 bg-white border rounded-full shadow-sm hover:bg-gray-100 transition"
-      >
-        ← Back
-      </button>
-
-      {/*01equipment info*/}
-      <div className="bg-[#efe8df] p-6 rounded-2xl w-3/4 mx-auto">
-        <h1 className="text-2xl font-semibold">{equipment.name}</h1>
-        <p className="text-gray-400">ID: {equipment.id}</p>
-      </div>
-
-      {/*02show Availability */}
-      <div className="bg-[#efe8df] p-6 rounded-2xl w-3/4 max-w-6xl mx-auto">
-
-        {/* Header */}
-        <div className="flex justify-between items-center mb-6">
-
-          <div className="flex items-center gap-4">
-            <button onClick={() => changeDate(-1)} className="px-3 py-1 border rounded-full">◀</button>
-
-            <h2 className="text-xl font-semibold whitespace-nowrap">
-              {formatDate(currentDate)}
-            </h2>
-
-            <button onClick={() => changeDate(1)} className="px-3 py-1 border rounded-full">▶</button>
-          </div>
-
-          <div className="flex gap-3">
-            <button
-              onClick={() => setCurrentDate(new Date())}
-              className="px-4 py-2 rounded-full border border-pink-400 text-pink-500"
-            >
-              TODAY
-            </button>
-
-            <input
-              type="date"
-              value={currentDate.toISOString().split("T")[0]}
-              onChange={(e) =>
-                setCurrentDate(new Date(e.target.value))
-              }
-              onClick={(e) => e.target.showPicker?.()}
-              className="border rounded-full px-4 py-2 cursor-pointer"
-            />
-          </div>
-        </div>
-
-        {/* Availability Grid */}
-        <div className="overflow-x-auto pb-4 custom-scroll scroll-smooth">
-
-          {/* 🔥 动态宽度容器（关键） */}
-          <div
-            style={{
-              minWidth: `calc(160px + ${(times.length - 1) * 120}px)`
-            }}
+    <main className="min-h-full bg-background-main px-3 py-4 md:px-6 md:py-6">
+      <section className="min-h-[calc(100vh-7rem)] rounded-2xl border border-border-light bg-background-main p-5 md:p-8">
+        <div className="mx-auto max-w-6xl space-y-6">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => router.back()}
+            className="w-auto text-sm"
           >
+            Back
+          </Button>
 
-            {/* 🔥 Time Slots Header */}
-            <div
-              className="grid gap-4 text-sm text-gray-500 mb-4"
-              style={{
-                gridTemplateColumns: `160px repeat(${times.length - 1}, 120px)`
-              }}
-            >
-              <div></div>
-
-              {times.map((t, i) => {
-                if (i === times.length - 1) return null; // ❗不显示最后一个
-
-                const hour = parseInt(t.split(":")[0]);
-                const next = String(hour + 1).padStart(2, "0");
-
-                return (
-                  <div key={t} className="text-center font-medium">
-                    {hour}:00 - {next}:00
-                  </div>
-                );
-              })}
+          <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
+            <div className="text-center">
+              <h1 className="text-3xl font-semibold text-primary">
+                {equipment.name}
+              </h1>
+              <p className="mt-2 text-sm text-text-muted">ID: {equipment.id}</p>
             </div>
+          </div>
 
-            {/* 🔥 Content */}
-            <div
-              className="grid gap-4 items-center"
-              style={{
-                gridTemplateColumns: `160px repeat(${times.length - 1}, 120px)`
-              }}
-            >
+          <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
+            <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-center gap-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => changeDate(-1)}
+                  className="h-10 w-10 px-0"
+                  aria-label="Previous day"
+                >
+                  &lt;
+                </Button>
 
-              {/* equipment info */}
-              <div>
-                <p className="font-semibold">{equipment.name}</p>
-                <p className="text-sm text-gray-400">{equipment.location}</p>
+                <h2 className="whitespace-nowrap text-xl font-semibold text-text-main">
+                  {formatDate(currentDate)}
+                </h2>
+
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => changeDate(1)}
+                  className="h-10 w-10 px-0"
+                  aria-label="Next day"
+                >
+                  &gt;
+                </Button>
               </div>
 
-              {/* 🔥 Time slots */}
-              {times.map((t, i) => {
-                if (i === times.length - 1) return null; // ❗保持一致
-
-                const status = getStatus(t);
-
-                return (
-                  <div
-                    key={t}
-                    className={`h-24 rounded-2xl flex items-center justify-center
-                    ${
-                      status === "booked"
-                        ? "bg-pink-300 text-pink-800"
-                        : status === "pending"
-                        ? "bg-purple-300 text-purple-800"
-                        : "bg-green-200 text-green-800"
-                    }`}
-                  >
-                    <div className="font-semibold">
-                      {status === "booked" && "BOOKED"}
-                      {status === "pending" && "PENDING"}
-                      {status === "available" && "AVAILABLE"}
-                    </div>
-                  </div>
-                );
-              })}
-
-            </div>
-
-          </div>
-        </div>
-      </div>
-
-      {/*03time choose*/}
-      <div className="bg-[#efe8df] p-6 rounded-2xl w-3/4 max-w-6xl mx-auto space-y-6">
-
-        {/* DATE + DURATION */}
-        <div className="grid grid-cols-2 gap-6">
-
-          <div>
-            <p className="text-xs text-gray-400 mb-1">DATE</p>
-            <div className="p-3 border rounded-xl">
-              {formatDate(currentDate)}
-            </div>
-          </div>
-
-          <div>
-            <p className="text-xs text-gray-400 mb-1">DURATION</p>
-            <div className="p-3 border rounded-xl">
-              {duration}h
-            </div>
-          </div>
-
-        </div>
-
-        {/* START / END */}
-        <div className="grid grid-cols-2 gap-6">
-
-          <div>
-            <p className="text-xs text-gray-400 mb-1">START TIME</p>
-            <select
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              className="w-full p-3 border rounded-xl"
-            >
-              {times.map((t) => (
-                <option key={t}>{t}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <p className="text-xs text-gray-400 mb-1">END TIME</p>
-            <select
-              value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-              className="w-full p-3 border rounded-xl"
-            >
-              {times.filter((t) => t > startTime).map((t) => (
-                <option key={t}>{t}</option>
-              ))}
-            </select>
-          </div>
-
-        </div>
-
-        {/* Suggested Slots */}
-        <div>
-          <p className="text-xs text-gray-400 mb-3 tracking-wider">
-            SUGGESTED SLOTS
-          </p>
-
-          <div className="flex gap-4">
-
-            {[
-              ["09:00","11:00"],
-              ["11:00","13:00"],
-              ["14:00","16:00"],
-              ["15:00","17:00"],
-            ].map(([s, e], i) => {
-
-              const duration = parseInt(e) - parseInt(s);
-
-              const slotAvailable = !bookings.some((b) => {
-                const bStart = parseInt(b.start_time);
-                const bEnd = parseInt(b.end_time);
-                return parseInt(s) < bEnd && parseInt(e) > bStart;
-              });
-
-              return (
-                <div
-                  key={i}
-                  onClick={() => {
-                    setStartTime(s);
-                    setEndTime(e);
-                  }}
-                  className={`rounded-2xl p-5 w-48 cursor-pointer transition hover:shadow-md
-                    ${
-                      slotAvailable
-                        ? "bg-[#faf7f3]"
-                        : "bg-red-100"
-                    }
-                  `}
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setCurrentDate(new Date())}
+                  className="w-auto text-sm"
                 >
-                  <p className="font-semibold text-lg">
-                    {s} – {e}
-                  </p>
+                  Today
+                </Button>
 
-                  <p className="text-sm text-gray-400 mt-1">
-                    {duration}h
-                  </p>
+                <Input
+                  type="date"
+                  value={currentDate.toISOString().split("T")[0]}
+                  onChange={(event) =>
+                    setCurrentDate(new Date(event.target.value))
+                  }
+                  onClick={(event) => event.target.showPicker?.()}
+                  className="cursor-pointer sm:w-44"
+                />
+              </div>
+            </div>
 
-                  <p
-                    className={`text-sm mt-3 font-medium
-                      ${
-                        slotAvailable
-                          ? "text-pink-600"
-                          : "text-red-600"
-                      }
-                    `}
-                  >
-                    {slotAvailable ? "QUICK SELECT" : "NOT AVAILABLE"}
-                  </p>
+            <div className="overflow-x-auto pb-4">
+              <div
+                style={{
+                  minWidth: `calc(160px + ${(times.length - 1) * 120}px)`,
+                }}
+              >
+                <div
+                  className="mb-4 grid gap-4 text-sm text-text-muted"
+                  style={{
+                    gridTemplateColumns: `160px repeat(${times.length - 1}, 120px)`,
+                  }}
+                >
+                  <div />
+
+                  {times.map((time, index) => {
+                    if (index === times.length - 1) return null;
+
+                    const hour = parseInt(time.split(":")[0]);
+                    const next = String(hour + 1).padStart(2, "0");
+
+                    return (
+                      <div key={time} className="text-center font-medium">
+                        {hour}:00 - {next}:00
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
 
+                <div
+                  className="grid items-center gap-4"
+                  style={{
+                    gridTemplateColumns: `160px repeat(${times.length - 1}, 120px)`,
+                  }}
+                >
+                  <div>
+                    <p className="font-semibold text-text-main">
+                      {equipment.name}
+                    </p>
+                    <p className="text-sm text-text-muted">
+                      {equipment.location || "-"}
+                    </p>
+                  </div>
+
+                  {times.map((time, index) => {
+                    if (index === times.length - 1) return null;
+
+                    const status = getStatus(time);
+
+                    return (
+                      <div
+                        key={time}
+                        className={`flex h-24 items-center justify-center rounded-xl border text-sm font-semibold ${
+                          status === "booked"
+                            ? "border-primary/20 bg-white text-primary"
+                            : status === "pending"
+                              ? "border-yellow-200 bg-yellow-50 text-yellow-700"
+                              : "border-green-200 bg-green-50 text-green-700"
+                        }`}
+                      >
+                        {status === "booked" && "BOOKED"}
+                        {status === "pending" && "PENDING"}
+                        {status === "available" && "AVAILABLE"}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Availability Status */}
-          <div
-            className={`mt-6 p-4 rounded-2xl
-              ${
-                !bookings.some((b) => {
-                  const bStart = parseInt(b.start_time);
-                  const bEnd = parseInt(b.end_time);
+          <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
+            <div className="grid gap-6 md:grid-cols-2">
+              <div>
+                <p className="mb-1 text-xs font-semibold tracking-wide text-text-muted">
+                  DATE
+                </p>
+                <div className="rounded-xl border border-border-light bg-background-main px-3 py-3 text-text-main">
+                  {formatDate(currentDate)}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-1 text-xs font-semibold tracking-wide text-text-muted">
+                  DURATION
+                </p>
+                <div className="rounded-xl border border-border-light bg-background-main px-3 py-3 text-text-main">
+                  {duration}h
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-1 text-xs font-semibold tracking-wide text-text-muted">
+                  START TIME
+                </p>
+                <select
+                  value={startTime}
+                  onChange={(event) => setStartTime(event.target.value)}
+                  className="h-11 w-full rounded-xl border border-border-light bg-white px-3 text-text-main outline-none transition-colors focus:border-primary"
+                >
+                  {times.map((time) => (
+                    <option key={time}>{time}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <p className="mb-1 text-xs font-semibold tracking-wide text-text-muted">
+                  END TIME
+                </p>
+                <select
+                  value={endTime}
+                  onChange={(event) => setEndTime(event.target.value)}
+                  className="h-11 w-full rounded-xl border border-border-light bg-white px-3 text-text-main outline-none transition-colors focus:border-primary"
+                >
+                  {times
+                    .filter((time) => time > startTime)
+                    .map((time) => (
+                      <option key={time}>{time}</option>
+                    ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <p className="mb-3 text-xs font-semibold tracking-wide text-text-muted">
+                SUGGESTED SLOTS
+              </p>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  ["09:00", "11:00"],
+                  ["11:00", "13:00"],
+                  ["14:00", "16:00"],
+                  ["15:00", "17:00"],
+                ].map(([suggestedStart, suggestedEnd]) => {
+                  const suggestedDuration =
+                    parseInt(suggestedEnd) - parseInt(suggestedStart);
+
+                  const slotAvailable = !bookings.some((booking) => {
+                    const bookingStart = parseInt(booking.start_time);
+                    const bookingEnd = parseInt(booking.end_time);
+                    return (
+                      parseInt(suggestedStart) < bookingEnd &&
+                      parseInt(suggestedEnd) > bookingStart
+                    );
+                  });
 
                   return (
-                    parseInt(startTime) < bEnd &&
-                    parseInt(endTime) > bStart
+                    <button
+                      type="button"
+                      key={`${suggestedStart}-${suggestedEnd}`}
+                      onClick={() => {
+                        setStartTime(suggestedStart);
+                        setEndTime(suggestedEnd);
+                      }}
+                      className={`rounded-xl border p-4 text-left transition-colors hover:border-primary ${
+                        slotAvailable
+                          ? "border-border-light bg-background-main"
+                          : "border-warning/20 bg-white"
+                      }`}
+                    >
+                      <p className="text-lg font-semibold text-text-main">
+                        {suggestedStart} - {suggestedEnd}
+                      </p>
+                      <p className="mt-1 text-sm text-text-muted">
+                        {suggestedDuration}h
+                      </p>
+                      <p
+                        className={`mt-3 text-sm font-semibold ${
+                          slotAvailable ? "text-primary" : "text-warning"
+                        }`}
+                      >
+                        {slotAvailable ? "QUICK SELECT" : "NOT AVAILABLE"}
+                      </p>
+                    </button>
                   );
-                })
-                  ? "bg-green-200 text-green-900"
-                  : "bg-red-200 text-red-900"
-              }
-            `}
-          >
-            {
-              !bookings.some((b) => {
-                const bStart = parseInt(b.start_time);
-                const bEnd = parseInt(b.end_time);
+                })}
+              </div>
 
-                return (
-                  parseInt(startTime) < bEnd &&
-                  parseInt(endTime) > bStart
-                );
-              })
-                ? "✔ Slot is available"
-                : "❌ Time slot not available"
-            }
+              <div
+                className={`mt-6 rounded-xl border px-4 py-3 text-sm font-semibold ${
+                  available
+                    ? "border-green-200 bg-green-50 text-green-700"
+                    : "border-warning/20 bg-white text-warning"
+                }`}
+              >
+                {available ? "Slot is available" : "Time slot not available"}
+              </div>
+            </div>
           </div>
 
+          <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
+            <textarea
+              placeholder="Briefly describe research objective..."
+              className="min-h-28 w-full rounded-xl border border-border-light bg-white p-3 text-text-main outline-none transition-colors placeholder:text-text-muted focus:border-primary"
+              value={usage}
+              onChange={(event) => setUsage(event.target.value)}
+            />
+          </div>
+
+          <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
+            <p className="mb-2 text-xs font-semibold tracking-wide text-text-muted">
+              PIC TOKEN
+            </p>
+            <Input
+              placeholder="Enter your 6-character token"
+              value={token}
+              maxLength={6}
+              onChange={(event) => setToken(event.target.value.toUpperCase())}
+            />
+
+            {errorMessage ? (
+              <p className="mt-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+                {errorMessage}
+              </p>
+            ) : null}
+
+            {successMessage ? (
+              <p className="mt-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+                {successMessage}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex flex-col gap-4 rounded-xl border border-border-light bg-white p-5 md:flex-row md:items-center md:justify-between md:p-6">
+            <div>
+              <p className="text-xs font-semibold tracking-wide text-text-muted">
+                TOTAL
+              </p>
+              <p className="text-2xl font-semibold text-primary">${total}.00</p>
+            </div>
+
+            <Button
+              onClick={handleSubmitBooking}
+              disabled={isSubmitting}
+              className="md:w-auto"
+            >
+              {isSubmitting ? "Submitting..." : "Book Now"}
+            </Button>
+          </div>
         </div>
-
-      </div>
-
-      {/*04Usage*/}
-      <div className="bg-[#efe8df] p-6 rounded-2xl w-3/4 max-w-6xl mx-auto">
-        <textarea
-          placeholder="Briefly describe research objective..."
-          className="w-full p-4 border rounded-xl"
-          value={usage}
-          onChange={(e) => setUsage(e.target.value)}
-        />
-      </div>
-
-      {/*05Token*/}
-      <div className="bg-[#efe8df] p-6 rounded-2xl w-3/4 max-w-6xl mx-auto">
-        <input
-          placeholder="Enter your token"
-          className="w-full p-3 border rounded-xl"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-        />
-      </div>
-
-      {/*06prices*/}
-      <div className="mt-6 flex justify-between items-centerbg-[#efe8df] p-6 rounded-2xl w-3/4 max-w-6xl mx-auto">
-
-        <div>
-          <p className="text-xs text-gray-400">TOTAL</p>
-          <p className="text-2xl text-pink-600 font-bold">
-            ${total}.00
-          </p>
-        </div>
-
-        <button
-          onClick={handleSubmitBooking}
-          className="bg-pink-600 text-white px-6 py-3 rounded-full hover:bg-pink-700 transition cursor-pointer"
-        >
-          Book Now
-        </button>
-
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

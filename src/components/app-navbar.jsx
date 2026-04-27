@@ -1,15 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getCurrentSession } from "@/lib/supabase/auth";
 import { fetchVerificationStatus } from "@/lib/verificationClient";
 
 export default function AppNavbar() {
-  const router = useRouter();
   const pathname = usePathname();
-  const [isCheckingBooking, setIsCheckingBooking] = useState(false);
   const [hasActiveVerification, setHasActiveVerification] = useState(false);
 
   const accountActive = pathname.startsWith("/account");
@@ -21,7 +19,6 @@ export default function AppNavbar() {
     let isMounted = true;
 
     if (pathname === "/") {
-      setHasActiveVerification(false);
       return () => {
         isMounted = false;
       };
@@ -75,42 +72,6 @@ export default function AppNavbar() {
   // Keep the login screen focused by hiding global navigation on root route.
   if (pathname === "/") {
     return null;
-  }
-
-  async function handleBookingClick() {
-    try {
-      setIsCheckingBooking(true);
-
-      const { data: sessionData } = await getCurrentSession();
-
-      if (!sessionData?.session) {
-        router.push("/");
-        return;
-      }
-
-      const accessToken = sessionData.session.access_token;
-      const verificationResponse = await fetchVerificationStatus(accessToken);
-
-      if (!verificationResponse.ok) {
-        router.push("/token-verification?redirect=/booking");
-        return;
-      }
-
-      const canAccessBooking =
-        verificationResponse.data?.verified ||
-        verificationResponse.data?.bypassVerification;
-
-      if (canAccessBooking) {
-        router.push("/booking");
-        return;
-      }
-
-      router.push("/token-verification?redirect=/booking");
-    } catch {
-      router.push("/token-verification?redirect=/booking");
-    } finally {
-      setIsCheckingBooking(false);
-    }
   }
 
   return (
