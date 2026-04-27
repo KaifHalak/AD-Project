@@ -1,17 +1,10 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  Calendar,
-  Clock,
-  ChevronDown,
-  Check,
-  Filter,
-  X,
-  FileText,
-} from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Calendar, Clock, FileText, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import Loader from "@/components/loader";
 import { getCurrentSession } from "@/lib/supabase/auth";
 
@@ -31,105 +24,125 @@ function formatTime(timeString) {
   return timeString.slice(0, 5);
 }
 
+function getTypeLabel(type) {
+  return type === "lab" ? "Lab" : "Equipment";
+}
+
+function getStatusStyles(status) {
+  switch (status) {
+    case "approved":
+      return "border-green-300 bg-green-50 text-green-700";
+    case "pending":
+      return "border-purple-200 bg-purple-50 text-purple-700";
+    case "cancelled":
+      return "border-border-light bg-background-main text-text-muted";
+    case "rejected":
+      return "border-warning/20 bg-white text-warning";
+    default:
+      return "border-border-light bg-white text-text-muted";
+  }
+}
+
+function getStatusLabel(status) {
+  switch (status) {
+    case "approved":
+      return "Approved";
+    case "pending":
+      return "Pending Approval";
+    case "cancelled":
+      return "Cancelled";
+    case "rejected":
+      return "Rejected";
+    default:
+      return status || "-";
+  }
+}
+
 export default function BookingRecordsPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [bookings, setBookings] = useState([]);
   const [errorMessage, setErrorMessage] = useState("");
   const [accessToken, setAccessToken] = useState("");
-
   const [selectedFilter, setSelectedFilter] = useState("all");
-  const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
-  const filterDropdownRef = useRef(null);
-
-  const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [bookingToCancel, setBookingToCancel] = useState(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState("");
 
-  const fetchBookings = useCallback(
-    async (token, filter) => {
-      try {
-        const params = filter && filter !== "all" ? `?type=${filter}` : "";
-        const response = await fetch(`/api/bookings${params}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          setErrorMessage(data.error || "Could not load bookings.");
-          return;
-        }
-        setBookings(data.bookings || []);
-      } catch {
-        setErrorMessage("Something went wrong while loading bookings.");
+  const fetchBookings = useCallback(async (token, filter) => {
+    try {
+      setErrorMessage("");
+      const params = filter && filter !== "all" ? `?type=${filter}` : "";
+      const response = await fetch(`/api/bookings${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        setErrorMessage(data.error || "Could not load bookings.");
+        return;
       }
-    },
-    [],
-  );
+
+      setBookings(data.bookings || []);
+    } catch {
+      setErrorMessage("Something went wrong while loading bookings.");
+    }
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
 
     async function init() {
       setIsLoading(true);
+
       try {
         const { data: sessionData } = await getCurrentSession();
         if (!isMounted) return;
+
         if (!sessionData?.session) {
           router.push("/");
           return;
         }
+
         const token = sessionData.session.access_token;
         setAccessToken(token);
         await fetchBookings(token, "all");
       } catch {
-        if (isMounted) setErrorMessage("Something went wrong. Please try again.");
+        if (isMounted) {
+          setErrorMessage("Something went wrong. Please try again.");
+        }
       } finally {
-        if (isMounted) setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     }
 
     init();
-    return () => { isMounted = false; };
+
+    return () => {
+      isMounted = false;
+    };
   }, [router, fetchBookings]);
 
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (
-        filterDropdownRef.current &&
-        !filterDropdownRef.current.contains(event.target)
-      ) {
-        setIsFilterDropdownOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  function toggleFilter(filterId) {
-    setSelectedFilter(filterId);
-    setIsFilterDropdownOpen(false);
+  function handleFilterChange(filter) {
+    setSelectedFilter(filter);
     if (accessToken) {
-      fetchBookings(accessToken, filterId);
+      fetchBookings(accessToken, filter);
     }
-  }
-
-  function getFilterLabel() {
-    if (selectedFilter === "lab") return "Lab Bookings";
-    if (selectedFilter === "equipment") return "Equipment Bookings";
-    return "All Bookings";
   }
 
   function handleCancelClick(booking) {
     setBookingToCancel(booking);
     setCancelError("");
-    setCancelModalOpen(true);
   }
 
   async function handleConfirmCancel() {
     if (!bookingToCancel) return;
+
     setIsCancelling(true);
     setCancelError("");
+
     try {
       const response = await fetch(`/api/bookings/${bookingToCancel.id}`, {
         method: "PATCH",
@@ -140,57 +153,24 @@ export default function BookingRecordsPage() {
         body: JSON.stringify({ status: "cancelled" }),
       });
       const data = await response.json();
+
       if (!response.ok) {
         setCancelError(data.error || "Could not cancel booking.");
         return;
       }
-      setBookings((prev) =>
-        prev.map((b) =>
-          b.id === bookingToCancel.id ? { ...b, status: "cancelled" } : b,
+
+      setBookings((currentBookings) =>
+        currentBookings.map((booking) =>
+          booking.id === bookingToCancel.id
+            ? { ...booking, status: "cancelled" }
+            : booking,
         ),
       );
-      setCancelModalOpen(false);
       setBookingToCancel(null);
     } catch {
       setCancelError("Something went wrong. Please try again.");
     } finally {
       setIsCancelling(false);
-    }
-  }
-
-  function handleKeepBooking() {
-    setCancelModalOpen(false);
-    setBookingToCancel(null);
-    setCancelError("");
-  }
-
-  function getStatusStyles(status) {
-    switch (status) {
-      case "approved":
-        return "bg-[#A8E6CF] text-[#1a1a1a]";
-      case "pending":
-        return "bg-[#D4A8E6] text-[#1a1a1a]";
-      case "cancelled":
-        return "bg-[#E6C8B4] text-[#1a1a1a]";
-      case "rejected":
-        return "bg-[#E6A8A8] text-[#1a1a1a]";
-      default:
-        return "bg-[#E8E4DA] text-[#6b6b6b]";
-    }
-  }
-
-  function getStatusLabel(status) {
-    switch (status) {
-      case "approved":
-        return "Approved";
-      case "pending":
-        return "Pending Approval";
-      case "cancelled":
-        return "Cancelled";
-      case "rejected":
-        return "Rejected";
-      default:
-        return status;
     }
   }
 
@@ -201,257 +181,180 @@ export default function BookingRecordsPage() {
   const activeCancellableStatuses = ["pending", "approved"];
 
   return (
-    <main className="min-h-screen bg-[#F4F0E6] px-6 py-12 md:px-12">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="text-[10px] tracking-[0.15em] uppercase text-[#6b6b6b] mb-3">
-          Laboratory Booking
-        </div>
-        <h1 className="text-[48px] leading-[1.1] font-bold text-[#1a1a1a] mb-4">
-          Booking Records
-        </h1>
-        <p className="text-[15px] text-[#6b6b6b] max-w-3xl leading-relaxed mb-6">
-          Comprehensive log of your lab access and equipment usage requests.
-          Filter by type to manage your bookings.
-        </p>
-
-        {/* Filter bar */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-[11px] tracking-[0.12em] uppercase text-[#6b6b6b] font-semibold">
-            Filter by Type:
-          </span>
-          <div className="relative" ref={filterDropdownRef}>
-            <button
-              onClick={() => setIsFilterDropdownOpen((prev) => !prev)}
-              className="px-5 py-2.5 rounded-xl bg-[#FAF8F4] border border-[rgba(0,0,0,0.06)] text-sm font-semibold text-[#1a1a1a] hover:bg-white transition-colors flex items-center gap-3 min-w-[200px] justify-between"
-            >
-              <div className="flex items-center gap-2">
-                <Filter className="w-4 h-4 text-[#6b6b6b]" />
-                <span>{getFilterLabel()}</span>
-              </div>
-              <ChevronDown
-                className={`w-4 h-4 transition-transform ${isFilterDropdownOpen ? "rotate-180" : ""}`}
-              />
-            </button>
-
-            {isFilterDropdownOpen && (
-              <div className="absolute top-full mt-2 left-0 w-[240px] bg-white rounded-xl border border-[rgba(0,0,0,0.06)] shadow-lg z-50 py-2">
-                {[
-                  { id: "all", label: "All Bookings" },
-                  { id: "lab", label: "Lab Bookings" },
-                  { id: "equipment", label: "Equipment Bookings" },
-                ].map((option, idx) => (
-                  <div key={option.id}>
-                    {idx === 1 && (
-                      <div className="border-t border-[rgba(0,0,0,0.06)] my-2" />
-                    )}
-                    <button
-                      onClick={() => toggleFilter(option.id)}
-                      className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-[#F4F0E6] transition-colors text-left"
-                    >
-                      <div
-                        className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-                          selectedFilter === option.id
-                            ? "bg-[#B0005A] border-[#B0005A]"
-                            : "border-[rgba(0,0,0,0.2)]"
-                        }`}
-                      >
-                        {selectedFilter === option.id && (
-                          <Check className="w-3.5 h-3.5 text-white" />
-                        )}
-                      </div>
-                      <span
-                        className={`text-[14px] text-[#1a1a1a] ${option.id === "all" ? "font-semibold" : ""}`}
-                      >
-                        {option.label}
-                      </span>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
+    <main className="min-h-full bg-background-main px-3 py-4 md:px-6 md:py-6">
+      <section className="min-h-[calc(100vh-7rem)] w-full rounded-2xl border border-border-light bg-background-main p-5 md:p-8">
+        <div className="space-y-6">
+          <div className="text-center">
+            <h1 className="text-3xl font-semibold text-primary">
+              Booking Records
+            </h1>
+            <p className="mt-2 text-sm text-text-muted">
+              View and manage your lab and equipment booking requests.
+            </p>
           </div>
 
-          <span className="text-[13px] text-[#6b6b6b]">
-            Showing {bookings.length} booking
-            {bookings.length !== 1 ? "s" : ""}
-          </span>
-        </div>
-      </div>
-
-      {/* Error */}
-      {errorMessage && (
-        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-          {errorMessage}
-        </div>
-      )}
-
-      {/* Booking cards */}
-      <div className="space-y-6">
-        {bookings.map((booking) => (
-          <div
-            key={booking.id}
-            className="bg-[#FAF8F4] rounded-[28px] p-8 shadow-sm border border-[rgba(0,0,0,0.04)]"
-          >
-            <div className="flex items-start gap-6 flex-wrap md:flex-nowrap">
-              {/* Image */}
-              {booking.image_url ? (
-                <img
-                  src={booking.image_url}
-                  alt={booking.resource_name}
-                  className="w-[200px] h-[140px] object-cover rounded-2xl flex-shrink-0"
-                />
-              ) : (
-                <div className="w-[200px] h-[140px] rounded-2xl bg-[#E8D4F0] flex items-center justify-center flex-shrink-0">
-                  <FileText className="w-10 h-10 text-[#B0005A]" />
-                </div>
-              )}
-
-              {/* Details */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-4 flex-wrap">
-                  <div className="inline-block px-3 py-1 rounded-full bg-[#F4E8F0] text-[#B0005A] text-[10px] font-semibold tracking-wide uppercase">
-                    Your Request
-                  </div>
-                  <div
-                    className={`inline-block px-3 py-1 rounded-full text-[10px] font-semibold tracking-wide uppercase ${
-                      booking.type === "lab"
-                        ? "bg-[#E8D4F0] text-[#8B5A9E]"
-                        : "bg-[#D4E8F0] text-[#5A8B9E]"
-                    }`}
-                  >
-                    {booking.type === "lab" ? "LAB" : "EQUIPMENT"}
-                  </div>
-                </div>
-
-                <h3 className="text-[24px] font-bold text-[#1a1a1a] mb-1">
-                  {booking.resource_name}
-                </h3>
-                {booking.resource_subtitle && (
-                  <p className="text-[14px] text-[#6b6b6b] mb-6">
-                    {booking.resource_subtitle}
-                  </p>
-                )}
-
-                <div className="space-y-2 mt-4">
-                  <div className="flex items-center gap-2 text-[14px] text-[#1a1a1a]">
-                    <Calendar className="w-4 h-4 text-[#6b6b6b] flex-shrink-0" />
-                    <span>{formatDate(booking.booking_date)}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-[14px] text-[#1a1a1a]">
-                    <Clock className="w-4 h-4 text-[#6b6b6b] flex-shrink-0" />
-                    <span>
-                      {formatTime(booking.start_time)} –{" "}
-                      {formatTime(booking.end_time)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Status + Actions */}
-              <div className="flex flex-col items-end gap-4 flex-shrink-0">
-                <div
-                  className={`px-3 py-1.5 rounded-full text-[11px] font-semibold uppercase ${getStatusStyles(booking.status)}`}
+          <div className="rounded-xl border border-border-light bg-white p-4 md:p-5">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <label className="flex flex-col gap-2 text-sm font-semibold text-text-main sm:w-64">
+                Filter by Type
+                <select
+                  value={selectedFilter}
+                  onChange={(event) => handleFilterChange(event.target.value)}
+                  className="h-11 rounded-xl border border-border-light bg-white px-3 text-sm font-normal text-text-main outline-none transition-colors focus:border-primary"
                 >
-                  {getStatusLabel(booking.status)}
-                </div>
+                  <option value="all">All Bookings</option>
+                  <option value="lab">Lab Bookings</option>
+                  <option value="equipment">Equipment Bookings</option>
+                </select>
+              </label>
 
-                <div className="flex flex-col gap-2">
-                  {booking.status === "approved" && (
-                    <Link
-                      href={`/booking-reschedule?id=${booking.id}&type=${booking.type}&name=${encodeURIComponent(booking.resource_name)}`}
-                      className="px-6 py-2.5 rounded-xl bg-[#B0005A] text-white text-sm font-semibold hover:bg-[#900048] transition-colors text-center"
-                    >
-                      Reschedule Date
-                    </Link>
-                  )}
-                  {activeCancellableStatuses.includes(booking.status) && (
-                    <button
-                      onClick={() => handleCancelClick(booking)}
-                      className="px-6 py-2.5 rounded-xl bg-white border-2 border-[#D0547B] text-[#D0547B] text-sm font-semibold hover:bg-[#FFF0F5] transition-colors"
-                    >
-                      Cancel Request
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Empty state */}
-      {bookings.length === 0 && !errorMessage && (
-        <div className="text-center py-20">
-          <div className="w-16 h-16 rounded-2xl bg-[#F4E8F0] flex items-center justify-center mx-auto mb-4">
-            <FileText className="w-8 h-8 text-[#B0005A]" />
-          </div>
-          <p className="text-[18px] font-semibold text-[#1a1a1a] mb-2">
-            No bookings found
-          </p>
-          <p className="text-[14px] text-[#6b6b6b]">
-            {selectedFilter === "all"
-              ? "You have not made any bookings yet."
-              : `No ${selectedFilter} bookings found.`}
-          </p>
-        </div>
-      )}
-
-      {/* Cancel confirmation modal */}
-      {cancelModalOpen && bookingToCancel && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-[28px] p-8 max-w-md w-full shadow-2xl relative">
-            <button
-              onClick={handleKeepBooking}
-              className="absolute top-6 right-6 w-8 h-8 rounded-full bg-[#F4F0E6] hover:bg-[#E8E4DA] flex items-center justify-center transition-colors"
-            >
-              <X className="w-5 h-5 text-[#6b6b6b]" />
-            </button>
-
-            <div className="mb-6">
-              <h2 className="text-[28px] font-bold text-[#1a1a1a] mb-4">
-                {bookingToCancel.status === "approved"
-                  ? "Cancel Booking?"
-                  : "Cancel Request?"}
-              </h2>
-              <p className="text-[15px] text-[#6b6b6b] leading-relaxed">
-                {bookingToCancel.status === "approved"
-                  ? "This will release your reserved time slot and cannot be undone."
-                  : "This request is still under review. Cancelling it will remove your request."}
+              <p className="text-sm text-text-muted">
+                Showing {bookings.length} booking
+                {bookings.length === 1 ? "" : "s"}
               </p>
             </div>
+          </div>
 
-            {cancelError && (
-              <p className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+          {errorMessage ? (
+            <p className="rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+              {errorMessage}
+            </p>
+          ) : null}
+
+          <div className="space-y-4">
+            {bookings.map((booking) => (
+              <article
+                key={booking.id}
+                className="rounded-xl border border-border-light bg-white p-4 md:p-6"
+              >
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0 space-y-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-border-light bg-background-main px-3 py-1 text-xs font-semibold uppercase text-text-muted">
+                        {getTypeLabel(booking.booking_type)}
+                      </span>
+                      <span
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${getStatusStyles(booking.status)}`}
+                      >
+                        {getStatusLabel(booking.status)}
+                      </span>
+                    </div>
+
+                    <div>
+                      <h2 className="text-xl font-semibold text-text-main">
+                        {booking.resource_name}
+                      </h2>
+                      <p className="mt-1 text-sm text-text-muted">
+                        ID: {booking.item_id}
+                        {booking.resource_subtitle
+                          ? ` | ${booking.resource_subtitle}`
+                          : ""}
+                      </p>
+                    </div>
+
+                    <div className="grid gap-3 text-sm text-text-main md:grid-cols-2">
+                      <p className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-text-muted" />
+                        {formatDate(booking.booking_date)}
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-text-muted" />
+                        {formatTime(booking.start_time)} - {formatTime(booking.end_time)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
+                    {booking.status === "approved" ? (
+                      <Link
+                        href={`/booking-reschedule?id=${booking.id}&type=${booking.booking_type}&name=${encodeURIComponent(booking.resource_name)}`}
+                        className="inline-flex h-11 items-center justify-center rounded-xl bg-primary px-4 text-base font-semibold text-white transition-colors hover:bg-primary-hover"
+                      >
+                        Reschedule
+                      </Link>
+                    ) : null}
+
+                    {activeCancellableStatuses.includes(booking.status) ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => handleCancelClick(booking)}
+                        className="md:w-auto"
+                      >
+                        Cancel
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          {bookings.length === 0 && !errorMessage ? (
+            <div className="rounded-xl border border-border-light bg-white px-4 py-10 text-center">
+              <FileText className="mx-auto h-10 w-10 text-primary" />
+              <p className="mt-3 font-semibold text-text-main">
+                No bookings found
+              </p>
+              <p className="mt-1 text-sm text-text-muted">
+                {selectedFilter === "all"
+                  ? "You have not made any bookings yet."
+                  : `No ${selectedFilter} bookings found.`}
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      {bookingToCancel ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-border-light bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-primary">
+                  Cancel Booking
+                </h2>
+                <p className="mt-2 text-sm text-text-main">
+                  Cancel {bookingToCancel.resource_name} on{" "}
+                  {formatDate(bookingToCancel.booking_date)}?
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBookingToCancel(null)}
+                className="rounded-lg border border-border-light p-2 text-text-muted transition-colors hover:bg-background-main"
+                aria-label="Close cancel dialog"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {cancelError ? (
+              <p className="mt-4 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
                 {cancelError}
               </p>
-            )}
+            ) : null}
 
-            <div className="flex gap-3">
-              <button
-                onClick={handleKeepBooking}
+            <div className="mt-5 flex gap-3">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setBookingToCancel(null)}
                 disabled={isCancelling}
-                className="flex-1 px-6 py-3 rounded-xl bg-white border border-[rgba(0,0,0,0.06)] text-sm font-semibold text-[#1a1a1a] hover:bg-[#F4F0E6] transition-colors disabled:opacity-60"
               >
-                {bookingToCancel.status === "approved"
-                  ? "Keep Booking"
-                  : "Keep Request"}
-              </button>
-              <button
+                Keep Booking
+              </Button>
+              <Button
+                type="button"
                 onClick={handleConfirmCancel}
                 disabled={isCancelling}
-                className="flex-1 px-6 py-3 rounded-xl bg-[#D0547B] text-white text-sm font-semibold hover:bg-[#B8416A] transition-colors disabled:opacity-60"
               >
-                {isCancelling
-                  ? "Cancelling..."
-                  : bookingToCancel.status === "approved"
-                    ? "Cancel Booking"
-                    : "Cancel Request"}
-              </button>
+                {isCancelling ? "Cancelling..." : "Cancel Booking"}
+              </Button>
             </div>
           </div>
         </div>
-      )}
+      ) : null}
     </main>
   );
 }

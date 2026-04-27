@@ -83,7 +83,7 @@ function getDurationHours(startTime, endTime) {
 }
 
 function isActiveBooking(booking) {
-  return booking.status !== "rejected";
+  return ["pending", "approved"].includes(booking.status);
 }
 
 function bookingOverlaps(booking, startTime, endTime) {
@@ -109,7 +109,7 @@ function getSlotStatus(booking) {
     return "pending";
   }
 
-  return "booked";
+  return "approved";
 }
 
 export default function LabReservationPage() {
@@ -473,7 +473,7 @@ export default function LabReservationPage() {
                           }`}
                         >
                           <span>
-                            {status === "pending" ? "Pending" : "Booked"}
+                            {status === "pending" ? "Pending" : "Approved"}
                           </span>
                           <span className="mt-1 text-[11px] font-normal text-text-muted">
                             {status === "pending"
@@ -689,9 +689,6 @@ export default function LabReservationPage() {
             </div>
 
             <div className="flex flex-col gap-3 md:items-end">
-              <p className="text-sm text-text-muted">
-                24h cancellation policy applies
-              </p>
               <Button type="submit" disabled={!canSubmit} className="md:w-auto">
                 {isSubmitting
                   ? "Submitting..."

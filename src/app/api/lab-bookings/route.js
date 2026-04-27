@@ -85,7 +85,7 @@ export async function POST(request) {
       .eq("booking_date", bookingDate)
       .lt("start_time", endTime)
       .gt("end_time", startTime)
-      .neq("status", "rejected")
+      .in("status", ["pending", "approved"])
       .limit(1)
       .maybeSingle();
 

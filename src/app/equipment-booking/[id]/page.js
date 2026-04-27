@@ -100,8 +100,8 @@ export default function EquipmentBookingPage() {
       const start = parseInt(b.start_time);
       const end = parseInt(b.end_time);
 
-      if (hour >= start && hour < end) {
-        return b.status; // booked / pending
+      if (["pending", "approved"].includes(b.status) && hour >= start && hour < end) {
+        return b.status;
       }
     }
 
@@ -121,7 +121,7 @@ export default function EquipmentBookingPage() {
       const bStart = toHour(b.start_time);
       const bEnd = toHour(b.end_time);
 
-      return start < bEnd && end > bStart;
+      return ["pending", "approved"].includes(b.status) && start < bEnd && end > bStart;
     });
   };
 
@@ -329,14 +329,14 @@ export default function EquipmentBookingPage() {
                       <div
                         key={time}
                         className={`flex h-24 items-center justify-center rounded-xl border text-sm font-semibold ${
-                          status === "booked"
+                          status === "approved"
                             ? "border-primary/20 bg-white text-primary"
                             : status === "pending"
                               ? "border-yellow-200 bg-yellow-50 text-yellow-700"
                               : "border-green-200 bg-green-50 text-green-700"
                         }`}
                       >
-                        {status === "booked" && "BOOKED"}
+                        {status === "approved" && "APPROVED"}
                         {status === "pending" && "PENDING"}
                         {status === "available" && "AVAILABLE"}
                       </div>
@@ -419,6 +419,7 @@ export default function EquipmentBookingPage() {
                     const bookingStart = parseInt(booking.start_time);
                     const bookingEnd = parseInt(booking.end_time);
                     return (
+                      ["pending", "approved"].includes(booking.status) &&
                       parseInt(suggestedStart) < bookingEnd &&
                       parseInt(suggestedEnd) > bookingStart
                     );

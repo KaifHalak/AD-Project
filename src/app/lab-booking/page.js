@@ -42,7 +42,10 @@ function normalizeTime(time) {
 
 function getSlotBooking(bookings, labId, startTime, endTime) {
   return bookings.find((booking) => {
-    if (booking.lab_id !== labId || booking.status === "rejected") {
+    if (
+      booking.lab_id !== labId ||
+      !["pending", "approved"].includes(booking.status)
+    ) {
       return false;
     }
 
@@ -62,7 +65,7 @@ function getSlotStatus(booking) {
     return "pending";
   }
 
-  return "booked";
+  return "approved";
 }
 
 export default function LabBookingPage() {
@@ -214,9 +217,9 @@ export default function LabBookingPage() {
                 <span className="h-3 w-3 rounded-full bg-green-300" />
                 Available
               </span>
-              <span className="inline-flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full bg-primary/40" />
-                Booked
+                <span className="inline-flex items-center gap-2">
+                  <span className="h-3 w-3 rounded-full bg-primary/40" />
+                Approved
               </span>
               <span className="inline-flex items-center gap-2">
                 <span className="h-3 w-3 rounded-full bg-purple-300" />
@@ -405,7 +408,9 @@ export default function LabBookingPage() {
                                   : "border-primary/20 bg-white text-primary"
                               }`}
                             >
-                              <span>{status === "pending" ? "Pending" : "Booked"}</span>
+                              <span>
+                                {status === "pending" ? "Pending" : "Approved"}
+                              </span>
                               <span className="mt-1 text-[11px] font-normal text-text-muted">
                                 {status === "pending"
                                   ? "Awaiting approval"

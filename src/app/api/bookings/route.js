@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServerClient } from "@/lib/supabase/supabaseServer";
 import { getSupabaseAdminClient } from "@/lib/supabase/supabaseAdmin";
+import { getSupabaseServerClient } from "@/lib/supabase/supabaseServer";
 
 function getAccessTokenFromHeader(request) {
   const authorizationHeader = request.headers.get("authorization") || "";
@@ -14,7 +14,9 @@ async function resolveUserProfile(accessToken) {
     await supabase.auth.getUser(accessToken);
 
   if (authError || !authData?.user?.email) {
-    return { error: { status: 401, message: "Unauthorized. Please log in again." } };
+    return {
+      error: { status: 401, message: "Unauthorized. Please log in again." },
+    };
   }
 
   const scopedClient = getSupabaseServerClient(accessToken);
@@ -29,6 +31,55 @@ async function resolveUserProfile(accessToken) {
   }
 
   return { profile };
+}
+
+async function enrichBookings(admin, bookings) {
+  const labIds = bookings
+    .filter((booking) => booking.booking_type === "lab")
+    .map((booking) => booking.item_id);
+  const equipmentIds = bookings
+    .filter((booking) => booking.booking_type === "equipment")
+    .map((booking) => booking.item_id);
+
+  const [labsResult, equipmentResult] = await Promise.all([
+    labIds.length
+      ? admin.from("labs").select("id, name, location, course").in("id", labIds)
+      : Promise.resolve({ data: [], error: null }),
+    equipmentIds.length
+      ? admin
+          .from("equipment")
+          .select("id, name, location, course")
+          .in("id", equipmentIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (labsResult.error) {
+    console.error("Error enriching lab bookings:", labsResult.error);
+  }
+
+  if (equipmentResult.error) {
+    console.error("Error enriching equipment bookings:", equipmentResult.error);
+  }
+
+  const labsById = new Map((labsResult.data || []).map((lab) => [lab.id, lab]));
+  const equipmentById = new Map(
+    (equipmentResult.data || []).map((equipment) => [equipment.id, equipment]),
+  );
+
+  return bookings.map((booking) => {
+    const item =
+      booking.booking_type === "lab"
+        ? labsById.get(booking.item_id)
+        : equipmentById.get(booking.item_id);
+    const fallbackType = booking.booking_type === "lab" ? "Lab" : "Equipment";
+    const subtitle = [item?.course, item?.location].filter(Boolean).join(" | ");
+
+    return {
+      ...booking,
+      resource_name: item?.name || `${fallbackType} ${booking.item_id}`,
+      resource_subtitle: subtitle || booking.item_id,
+    };
+  });
 }
 
 export async function GET(request) {
@@ -52,12 +103,13 @@ export async function GET(request) {
     const admin = getSupabaseAdminClient();
     let query = admin
       .from("bookings")
-      .select("*")
+      .select("id, booking_type, item_id, user_id, booking_date, start_time, end_time, status")
       .eq("user_id", profile.id)
-      .order("created_at", { ascending: false });
+      .order("booking_date", { ascending: false })
+      .order("start_time", { ascending: false });
 
     if (typeFilter && typeFilter !== "all") {
-      query = query.eq("type", typeFilter);
+      query = query.eq("booking_type", typeFilter);
     }
 
     const { data: bookings, error: fetchError } = await query;
@@ -70,91 +122,12 @@ export async function GET(request) {
       );
     }
 
-    return NextResponse.json({ bookings: bookings || [] }, { status: 200 });
+    const enrichedBookings = await enrichBookings(admin, bookings || []);
+    return NextResponse.json({ bookings: enrichedBookings }, { status: 200 });
   } catch (error) {
     console.error("Error in GET /api/bookings:", error);
     return NextResponse.json(
       { error: "Something went wrong while fetching bookings." },
-      { status: 500 },
-    );
-  }
-}
-
-export async function POST(request) {
-  try {
-    const accessToken = getAccessTokenFromHeader(request);
-    if (!accessToken) {
-      return NextResponse.json(
-        { error: "Unauthorized. Missing access token." },
-        { status: 401 },
-      );
-    }
-
-    const { profile, error } = await resolveUserProfile(accessToken);
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    }
-
-    const body = await request.json();
-    const {
-      type,
-      resource_name,
-      resource_subtitle,
-      booking_date,
-      start_time,
-      end_time,
-      image_url,
-    } = body;
-
-    if (!type || !resource_name || !booking_date || !start_time || !end_time) {
-      return NextResponse.json(
-        { error: "Missing required booking fields." },
-        { status: 400 },
-      );
-    }
-
-    if (!["lab", "equipment"].includes(type)) {
-      return NextResponse.json(
-        { error: "Type must be 'lab' or 'equipment'." },
-        { status: 400 },
-      );
-    }
-
-    const admin = getSupabaseAdminClient();
-    const { data: booking, error: insertError } = await admin
-      .from("bookings")
-      .insert({
-        user_id: profile.id,
-        type,
-        resource_name,
-        resource_subtitle: resource_subtitle || null,
-        booking_date,
-        start_time,
-        end_time,
-        image_url: image_url || null,
-        status: "pending",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .select("*")
-      .maybeSingle();
-
-    if (insertError) {
-      console.error("Error creating booking:", insertError);
-      return NextResponse.json(
-        { error: "Could not create booking." },
-        { status: 500 },
-      );
-    }
-
-    return NextResponse.json(
-      { message: "Booking created successfully.", booking },
-      { status: 201 },
-    );
-  } catch (error) {
-    console.error("Error in POST /api/bookings:", error);
-    return NextResponse.json(
-      { error: "Something went wrong while creating the booking." },
       { status: 500 },
     );
   }
