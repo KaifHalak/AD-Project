@@ -6,7 +6,6 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
 export default function LocationFilter({ selected, setSelected }) {
   const [locations, setLocations] = useState([]);
   const [open, setOpen] = useState(false);
-
   const timerRef = useRef(null);
 
   useEffect(() => {

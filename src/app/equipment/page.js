@@ -1,17 +1,44 @@
 "use client";
-
-import { useState } from "react";
-
+import { useState, useEffect } from "react";
+import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
 import Navbar from "./equipment-components/navbar";
 import EquipmentList from "./equipment-components/EquipmentList";
 import CourseFilter from "./equipment-components/filters/CourseFilter";
 import LocationFilter from "./equipment-components/filters/LocationFilter";
+import { useRouter } from "next/navigation";
+
+
+
 
 export default function EquipmentPage() {
+  const router = useRouter(); //
   const [search, setSearch] = useState("");
   const [course, setCourse] = useState("All Courses");
   const [location, setLocation] = useState("All Locations");
+  const [user, setUser] = useState(null);
+  const supabase = getSupabaseBrowserClient();
+  // get user role
+    useEffect(() => {
+    const fetchUser = async () => {
+      const { data: authData } = await supabase.auth.getUser();
 
+      if (!authData?.user) return;
+
+      const { data: userData } = await supabase
+        .from("users")
+        .select("role")
+        .eq("email", authData.user.email)
+        .single();
+
+      setUser({
+        email: authData.user.email,
+        role: userData?.role,
+      });
+    };
+
+    fetchUser();
+  }, []);
+  
   return (
     <>
       {/*Navbar */}
@@ -23,9 +50,21 @@ export default function EquipmentPage() {
           LABORATORY BOOKING
         </p>
 
-        <h1 className="text-5xl font-bold mb-8">
-          Equipment Catalog
-        </h1>
+        {/*Equipment Catalog */} 
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-5xl font-bold">
+            Equipment Catalog
+          </h1>
+
+          {/*only pic show */}
+          {user?.role === "pic" && (
+            <button 
+            onClick={() => router.push("/equipment/add_equipment")}
+            className="bg-red-400 text-white px-5 py-3 rounded-xl hover:opacity-80 cursor-pointer">
+              + Add Equipment
+            </button>
+          )}
+        </div>
 
         {/* Search and Filters */}
         <div className="flex gap-4 mb-6">

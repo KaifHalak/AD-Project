@@ -112,7 +112,7 @@ export default function EquipmentBookingPage() {
 
 const available = isTimeAvailable();
 
-  //handle booking
+//handle booking
 const handleSubmitBooking = async (e) => {
   e?.preventDefault(); // 🔥 防止 form 重复触发（关键）
 
@@ -198,7 +198,6 @@ const handleSubmitBooking = async (e) => {
 
       {/*02show Availability */}
       <div className="bg-[#efe8df] p-6 rounded-2xl w-3/4 max-w-6xl mx-auto">
-
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
 
@@ -235,14 +234,14 @@ const handleSubmitBooking = async (e) => {
         {/* Availability Grid */}
         <div className="overflow-x-auto pb-4 custom-scroll scroll-smooth">
 
-          {/* 🔥 动态宽度容器（关键） */}
+          {/*dynamic width container*/}
           <div
             style={{
               minWidth: `calc(160px + ${(times.length - 1) * 120}px)`
             }}
           >
 
-            {/* 🔥 Time Slots Header */}
+            {/*Time Slots Header */}
             <div
               className="grid gap-4 text-sm text-gray-500 mb-4"
               style={{
@@ -252,7 +251,7 @@ const handleSubmitBooking = async (e) => {
               <div></div>
 
               {times.map((t, i) => {
-                if (i === times.length - 1) return null; // ❗不显示最后一个
+                if (i === times.length - 1) return null; 
 
                 const hour = parseInt(t.split(":")[0]);
                 const next = String(hour + 1).padStart(2, "0");
@@ -265,7 +264,7 @@ const handleSubmitBooking = async (e) => {
               })}
             </div>
 
-            {/* 🔥 Content */}
+            {/*Content */}
             <div
               className="grid gap-4 items-center"
               style={{
@@ -279,10 +278,9 @@ const handleSubmitBooking = async (e) => {
                 <p className="text-sm text-gray-400">{equipment.location}</p>
               </div>
 
-              {/* 🔥 Time slots */}
+              {/*Time slots */}
               {times.map((t, i) => {
-                if (i === times.length - 1) return null; // ❗保持一致
-
+                if (i === times.length - 1) return null; //
                 const status = getStatus(t);
 
                 return (
