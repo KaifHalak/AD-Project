@@ -13,8 +13,8 @@ export default function AppNavbar() {
   const [hasActiveVerification, setHasActiveVerification] = useState(false);
 
   const accountActive = pathname.startsWith("/account");
-  const bookingActive =
-    pathname.startsWith("/booking") && !pathname.startsWith("/booking-records");
+  const labBooking = pathname.startsWith("/lab-booking");
+  const equipmentBooking = pathname.startsWith("/equipment-booking");
   const bookingRecordsActive = pathname.startsWith("/booking-records");
 
   useEffect(() => {
@@ -132,19 +132,26 @@ export default function AppNavbar() {
             Account
           </Link>
 
-          <button
-            type="button"
-            onClick={handleBookingClick}
-            disabled={isCheckingBooking}
+          <Link
+            href="/lab-booking"
             className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
-              bookingActive
+              labBooking
                 ? "border-primary bg-primary text-white"
                 : "border-border-light bg-white text-text-main hover:bg-background-main"
             }`}
           >
-            {isCheckingBooking ? "Checking..." : "Booking"}
-          </button>
-
+            Lab Booking
+          </Link>
+          <Link
+            href="/equipment-booking"
+            className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+              equipmentBooking
+                ? "border-primary bg-primary text-white"
+                : "border-border-light bg-white text-text-main hover:bg-background-main"
+            }`}
+          >
+            Equipment Booking
+          </Link>
           <Link
             href="/booking-records"
             className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${

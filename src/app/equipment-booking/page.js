@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 
-import Navbar from "./equipment-components/navbar";
 import EquipmentList from "./equipment-components/EquipmentList";
 import CourseFilter from "./equipment-components/filters/CourseFilter";
 import LocationFilter from "./equipment-components/filters/LocationFilter";
@@ -14,18 +13,13 @@ export default function EquipmentPage() {
 
   return (
     <>
-      {/*Navbar */}
-      <Navbar />
-
       <div className="bg-[#f3eee7] min-h-screen px-10 py-8">
         {/* Page Title */}
         <p className="text-xs tracking-widest text-gray-500 mb-2">
           LABORATORY BOOKING
         </p>
 
-        <h1 className="text-5xl font-bold mb-8">
-          Equipment Catalog
-        </h1>
+        <h1 className="text-5xl font-bold mb-8">Equipment Catalog</h1>
 
         {/* Search and Filters */}
         <div className="flex gap-4 mb-6">
@@ -41,11 +35,7 @@ export default function EquipmentPage() {
         </div>
 
         {/* Equipment List */}
-        <EquipmentList
-          search={search}
-          course={course}
-          location={location}
-        />
+        <EquipmentList search={search} course={course} location={location} />
       </div>
     </>
   );
