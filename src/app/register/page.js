@@ -13,7 +13,6 @@ const REQUIRED_EMAIL_SUFFIX = "@graduate.utm.my";
 const ROLE_OPTIONS = [
   { value: "student", label: "Student" },
   { value: "staff", label: "Staff" },
-  { value: "pic", label: "PIC" },
 ];
 
 async function registerWithEmailPassword({ username, email, password, role }) {
@@ -156,6 +155,10 @@ export default function RegisterPage() {
                 </option>
               ))}
             </select>
+            <p className="text-xs text-text-muted">
+              PIC accounts are assigned by the system administrator after your
+              account is created.
+            </p>
           </div>
 
           {errorMessage ? (

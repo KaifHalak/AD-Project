@@ -351,6 +351,16 @@ export default function LabReservationPage() {
                 Laboratory Booking
               </p>
             </div>
+
+            <div className="rounded-xl border border-border-light bg-white p-4 text-sm text-text-muted md:p-5">
+              <p className="font-semibold text-primary">Before you submit</p>
+              <p className="mt-2">
+                Choose a free time slot, describe your research objective, then
+                enter the 6-character authorization token assigned to your
+                account by the PIC. Submitted bookings stay pending until they
+                are approved.
+              </p>
+            </div>
           </div>
 
           <section className="space-y-3">
@@ -422,6 +432,9 @@ export default function LabReservationPage() {
               </div>
 
               <div className="overflow-x-auto pb-2">
+                <p className="mb-3 text-xs text-text-muted">
+                  Tip: scroll sideways to view all time slots.
+                </p>
                 <div className="min-w-[1180px]">
                   <div className="grid grid-cols-[150px_repeat(10,1fr)] gap-3 pb-3 text-sm font-semibold text-text-main">
                     <div className="text-xs uppercase tracking-wide text-text-muted">
@@ -473,7 +486,7 @@ export default function LabReservationPage() {
                           }`}
                         >
                           <span>
-                            {status === "pending" ? "Pending" : "Approved"}
+                            {status === "pending" ? "Pending" : "Reserved"}
                           </span>
                           <span className="mt-1 text-[11px] font-normal text-text-muted">
                             {status === "pending"
@@ -657,7 +670,9 @@ export default function LabReservationPage() {
             </p>
             <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
               <p className="mb-3 text-sm text-text-muted">
-                Please enter your authorization token to complete the booking.
+                Enter the 6-character token assigned to your account by the PIC.
+                Tokens cannot be shared between users and can be reused until
+                they expire.
               </p>
               <Input
                 placeholder="Enter your token"

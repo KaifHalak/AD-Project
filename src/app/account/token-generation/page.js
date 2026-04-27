@@ -264,6 +264,19 @@ export default function TokenGenerationPage() {
           <h1 className="text-3xl font-semibold text-primary">
             Token Generation
           </h1>
+          <p className="text-sm text-text-muted">
+            Generate and assign booking tokens for students or staff.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-border-light bg-white p-4 text-sm text-text-muted">
+          <p className="font-semibold text-primary">PIC workflow</p>
+          <div className="mt-2 grid gap-2 md:grid-cols-4">
+            <p>1. Search for the user by university email.</p>
+            <p>2. Generate a 6-character token.</p>
+            <p>3. Assign the token to that user.</p>
+            <p>4. The user enters it during lab or equipment booking.</p>
+          </div>
         </div>
 
         {errorMessage ? (

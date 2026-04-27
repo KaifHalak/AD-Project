@@ -25,6 +25,16 @@ export default function EquipmentPage() {
             </p>
           </div>
 
+          <div className="rounded-xl border border-border-light bg-white p-4 text-sm text-text-muted md:p-5">
+            <p className="font-semibold text-primary">How equipment booking works</p>
+            <div className="mt-2 grid gap-2 md:grid-cols-4">
+              <p>1. Select equipment to view details and availability.</p>
+              <p>2. Choose an available date and time.</p>
+              <p>3. Enter the PIC token assigned to your account.</p>
+              <p>4. Check Booking Records for approval status.</p>
+            </div>
+          </div>
+
           <div className="rounded-xl border border-border-light bg-white p-4 md:p-5">
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
               <Input

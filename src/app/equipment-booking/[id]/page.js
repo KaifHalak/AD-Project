@@ -227,7 +227,19 @@ export default function EquipmentBookingPage() {
             </div>
           </div>
 
+          <div className="rounded-xl border border-border-light bg-white p-4 text-sm text-text-muted md:p-5">
+            <p className="font-semibold text-primary">Before you submit</p>
+            <p className="mt-2">
+              Select an available time, describe the usage purpose, then enter
+              the 6-character PIC token assigned to your account. The request
+              will appear as pending until it is approved.
+            </p>
+          </div>
+
           <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
+            <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-text-muted">
+              01 Availability
+            </p>
             <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div className="flex items-center gap-3">
                 <Button
@@ -278,6 +290,9 @@ export default function EquipmentBookingPage() {
             </div>
 
             <div className="overflow-x-auto pb-4">
+              <p className="mb-3 text-xs text-text-muted">
+                Tip: scroll sideways to view all time slots.
+              </p>
               <div
                 style={{
                   minWidth: `calc(160px + ${(times.length - 1) * 120}px)`,
@@ -336,7 +351,7 @@ export default function EquipmentBookingPage() {
                               : "border-green-200 bg-green-50 text-green-700"
                         }`}
                       >
-                        {status === "approved" && "APPROVED"}
+                        {status === "approved" && "RESERVED"}
                         {status === "pending" && "PENDING"}
                         {status === "available" && "AVAILABLE"}
                       </div>
@@ -348,6 +363,9 @@ export default function EquipmentBookingPage() {
           </div>
 
           <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
+            <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-text-muted">
+              02 Date and Time Selection
+            </p>
             <div className="grid gap-6 md:grid-cols-2">
               <div>
                 <p className="mb-1 text-xs font-semibold tracking-wide text-text-muted">
@@ -470,6 +488,9 @@ export default function EquipmentBookingPage() {
           </div>
 
           <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-text-muted">
+              03 Usage Context
+            </p>
             <textarea
               placeholder="Briefly describe research objective..."
               className="min-h-28 w-full rounded-xl border border-border-light bg-white p-3 text-text-main outline-none transition-colors placeholder:text-text-muted focus:border-primary"
@@ -480,7 +501,11 @@ export default function EquipmentBookingPage() {
 
           <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
             <p className="mb-2 text-xs font-semibold tracking-wide text-text-muted">
-              PIC TOKEN
+              04 PIC TOKEN
+            </p>
+            <p className="mb-3 text-sm text-text-muted">
+              Ask the responsible PIC for a 6-character token. Tokens are tied
+              to your account and can be reused until they expire.
             </p>
             <Input
               placeholder="Enter your 6-character token"
@@ -505,7 +530,7 @@ export default function EquipmentBookingPage() {
           <div className="flex flex-col gap-4 rounded-xl border border-border-light bg-white p-5 md:flex-row md:items-center md:justify-between md:p-6">
             <div>
               <p className="text-xs font-semibold tracking-wide text-text-muted">
-                TOTAL
+                05 EST. TOTAL
               </p>
               <p className="text-2xl font-semibold text-primary">${total}.00</p>
             </div>

@@ -219,6 +219,15 @@ export default function BookingReschedulePage() {
             </p>
           </div>
 
+          <div className="rounded-xl border border-border-light bg-white p-4 text-sm text-text-muted md:p-5">
+            <p className="font-semibold text-primary">Reschedule rules</p>
+            <p className="mt-2">
+              Pending and approved bookings block the selected time. If another
+              request already overlaps your new date and time, the system will
+              ask you to choose a different slot.
+            </p>
+          </div>
+
           {errorMessage ? (
             <p className="rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
               {errorMessage}

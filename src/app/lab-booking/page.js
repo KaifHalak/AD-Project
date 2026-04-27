@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
 
@@ -219,12 +218,22 @@ export default function LabBookingPage() {
               </span>
                 <span className="inline-flex items-center gap-2">
                   <span className="h-3 w-3 rounded-full bg-primary/40" />
-                Approved
+                Reserved
               </span>
               <span className="inline-flex items-center gap-2">
                 <span className="h-3 w-3 rounded-full bg-purple-300" />
                 Pending
               </span>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border-light bg-white p-4 text-sm text-text-muted md:p-5">
+            <p className="font-semibold text-primary">How lab booking works</p>
+            <div className="mt-2 grid gap-2 md:grid-cols-4">
+              <p>1. Pick an available lab time slot.</p>
+              <p>2. Enter the booking details and your research purpose.</p>
+              <p>3. Ask the responsible PIC for a 6-character token.</p>
+              <p>4. Track approval from Booking Records.</p>
             </div>
           </div>
 
@@ -345,6 +354,9 @@ export default function LabBookingPage() {
 
             {!isLoading ? (
               <div className="mt-6 overflow-x-auto pb-2">
+                <p className="mb-3 text-xs text-text-muted">
+                  Tip: scroll sideways to view all time slots.
+                </p>
                 <div className="min-w-[1180px]">
                   <div className="grid grid-cols-[150px_repeat(10,1fr)] gap-3 border-b border-border-light pb-3 text-sm font-semibold text-text-main">
                     <div className="text-xs uppercase tracking-wide text-text-muted">
@@ -405,7 +417,7 @@ export default function LabBookingPage() {
                               }`}
                             >
                               <span>
-                                {status === "pending" ? "Pending" : "Approved"}
+                                {status === "pending" ? "Pending" : "Reserved"}
                               </span>
                               <span className="mt-1 text-[11px] font-normal text-text-muted">
                                 {status === "pending"

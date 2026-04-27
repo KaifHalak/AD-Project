@@ -215,6 +215,16 @@ export default function BookingRecordsPage() {
             </div>
           </div>
 
+          <div className="rounded-xl border border-border-light bg-white p-4 text-sm text-text-muted md:p-5">
+            <p className="font-semibold text-primary">Status guide</p>
+            <div className="mt-2 grid gap-2 md:grid-cols-4">
+              <p><span className="font-semibold text-text-main">Pending:</span> waiting for review.</p>
+              <p><span className="font-semibold text-text-main">Approved:</span> your booking is confirmed.</p>
+              <p><span className="font-semibold text-text-main">Rejected:</span> submit another request.</p>
+              <p><span className="font-semibold text-text-main">Cancelled:</span> no longer active.</p>
+            </div>
+          </div>
+
           {errorMessage ? (
             <p className="rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
               {errorMessage}
