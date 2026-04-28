@@ -64,18 +64,32 @@ export default function BookingRecordsPage() {
   const [bookings, setBookings] = useState([]);
   const [errorMessage, setErrorMessage] = useState("");
   const [accessToken, setAccessToken] = useState("");
-  const [selectedFilter, setSelectedFilter] = useState("all");
+  const [selectedTypeFilter, setSelectedTypeFilter] = useState("all");
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState("all");
   const [bookingToCancel, setBookingToCancel] = useState(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState("");
 
-  const fetchBookings = useCallback(async (token, filter) => {
+  const fetchBookings = useCallback(async (token, typeFilter, statusFilter) => {
     try {
       setErrorMessage("");
-      const params = filter && filter !== "all" ? `?type=${filter}` : "";
-      const response = await fetch(`/api/bookings${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const params = new URLSearchParams();
+
+      if (typeFilter && typeFilter !== "all") {
+        params.set("type", typeFilter);
+      }
+
+      if (statusFilter && statusFilter !== "all") {
+        params.set("status", statusFilter);
+      }
+
+      const queryString = params.toString();
+      const response = await fetch(
+        `/api/bookings${queryString ? `?${queryString}` : ""}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       const data = await response.json();
 
       if (!response.ok) {
@@ -106,7 +120,7 @@ export default function BookingRecordsPage() {
 
         const token = sessionData.session.access_token;
         setAccessToken(token);
-        await fetchBookings(token, "all");
+        await fetchBookings(token, "all", "all");
       } catch {
         if (isMounted) {
           setErrorMessage("Something went wrong. Please try again.");
@@ -125,10 +139,17 @@ export default function BookingRecordsPage() {
     };
   }, [router, fetchBookings]);
 
-  function handleFilterChange(filter) {
-    setSelectedFilter(filter);
+  function handleTypeFilterChange(filter) {
+    setSelectedTypeFilter(filter);
     if (accessToken) {
-      fetchBookings(accessToken, filter);
+      fetchBookings(accessToken, filter, selectedStatusFilter);
+    }
+  }
+
+  function handleStatusFilterChange(filter) {
+    setSelectedStatusFilter(filter);
+    if (accessToken) {
+      fetchBookings(accessToken, selectedTypeFilter, filter);
     }
   }
 
@@ -164,6 +185,10 @@ export default function BookingRecordsPage() {
           booking.id === bookingToCancel.id
             ? { ...booking, status: "cancelled" }
             : booking,
+        ).filter(
+          (booking) =>
+            selectedStatusFilter === "all" ||
+            booking.status === selectedStatusFilter,
         ),
       );
       setBookingToCancel(null);
@@ -198,13 +223,28 @@ export default function BookingRecordsPage() {
               <label className="flex flex-col gap-2 text-sm font-semibold text-text-main sm:w-64">
                 Filter by Type
                 <select
-                  value={selectedFilter}
-                  onChange={(event) => handleFilterChange(event.target.value)}
+                  value={selectedTypeFilter}
+                  onChange={(event) => handleTypeFilterChange(event.target.value)}
                   className="h-11 rounded-xl border border-border-light bg-white px-3 text-sm font-normal text-text-main outline-none transition-colors focus:border-primary"
                 >
                   <option value="all">All Bookings</option>
                   <option value="lab">Lab Bookings</option>
                   <option value="equipment">Equipment Bookings</option>
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-2 text-sm font-semibold text-text-main sm:w-64">
+                Filter by Status
+                <select
+                  value={selectedStatusFilter}
+                  onChange={(event) => handleStatusFilterChange(event.target.value)}
+                  className="h-11 rounded-xl border border-border-light bg-white px-3 text-sm font-normal text-text-main outline-none transition-colors focus:border-primary"
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="cancelled">Cancelled</option>
                 </select>
               </label>
 
@@ -311,9 +351,9 @@ export default function BookingRecordsPage() {
                 No bookings found
               </p>
               <p className="mt-1 text-sm text-text-muted">
-                {selectedFilter === "all"
+                {selectedTypeFilter === "all" && selectedStatusFilter === "all"
                   ? "You have not made any bookings yet."
-                  : `No ${selectedFilter} bookings found.`}
+                  : "No bookings match the selected filters."}
               </p>
             </div>
           ) : null}

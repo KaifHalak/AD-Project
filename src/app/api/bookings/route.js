@@ -99,6 +99,7 @@ export async function GET(request) {
 
     const { searchParams } = new URL(request.url);
     const typeFilter = searchParams.get("type");
+    const statusFilter = searchParams.get("status");
 
     const admin = getSupabaseAdminClient();
     let query = admin
@@ -110,6 +111,10 @@ export async function GET(request) {
 
     if (typeFilter && typeFilter !== "all") {
       query = query.eq("booking_type", typeFilter);
+    }
+
+    if (statusFilter && statusFilter !== "all") {
+      query = query.eq("status", statusFilter);
     }
 
     const { data: bookings, error: fetchError } = await query;

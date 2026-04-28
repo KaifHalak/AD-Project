@@ -254,8 +254,11 @@ export default function EquipmentBookingPage() {
         : available
           ? "available"
           : "conflict";
+  const hasCompleteBookingFields = Boolean(
+    selectedDateString && startTime && endTime && usage.trim() && token.trim(),
+  );
   const canSubmit =
-    validationStatus === "available" && token.trim() && !isSubmitting;
+    validationStatus === "available" && hasCompleteBookingFields && !isSubmitting;
 
   //handle booking
   const handleSubmitBooking = async (e) => {
@@ -283,6 +286,11 @@ export default function EquipmentBookingPage() {
                   ? "End time must be after start time."
                 : "Time slot not available. Please select another time.",
         );
+        return;
+      }
+
+      if (!usage.trim()) {
+        setErrorMessage("Please describe your usage purpose.");
         return;
       }
 

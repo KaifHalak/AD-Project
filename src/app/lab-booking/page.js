@@ -259,8 +259,8 @@ export default function LabBookingPage() {
                 <span className="h-3 w-3 rounded-full bg-green-300" />
                 Available
               </span>
-                <span className="inline-flex items-center gap-2">
-                  <span className="h-3 w-3 rounded-full bg-primary/40" />
+              <span className="inline-flex items-center gap-2">
+                <span className="h-3 w-3 rounded-full bg-primary/40" />
                 Reserved
               </span>
               <span className="inline-flex items-center gap-2">
@@ -284,6 +284,10 @@ export default function LabBookingPage() {
               <li>Office hours only: 08:00 to 18:00.</li>
               <li>Class timetable slots are blocked automatically.</li>
             </ul>
+          </div>
+
+          <div className="rounded-xl border border-border-light bg-white px-4 py-3 text-sm text-text-muted">
+            Click any available lab time slot to start your booking.
           </div>
 
           <div className="rounded-xl border border-border-light bg-white p-4 md:p-5">
@@ -331,11 +335,10 @@ export default function LabBookingPage() {
                         className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-text-main hover:bg-background-main"
                       >
                         <span
-                          className={`flex h-5 w-5 items-center justify-center rounded border ${
-                            selectedLabIds.length === 0
+                          className={`flex h-5 w-5 items-center justify-center rounded border ${selectedLabIds.length === 0
                               ? "border-primary bg-primary text-white"
                               : "border-border-light bg-white"
-                          }`}
+                            }`}
                         >
                           {selectedLabIds.length === 0 ? "x" : ""}
                         </span>
@@ -354,11 +357,10 @@ export default function LabBookingPage() {
                             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-text-main hover:bg-background-main"
                           >
                             <span
-                              className={`flex h-5 w-5 items-center justify-center rounded border ${
-                                checked
+                              className={`flex h-5 w-5 items-center justify-center rounded border ${checked
                                   ? "border-primary bg-primary text-white"
                                   : "border-border-light bg-white"
-                              }`}
+                                }`}
                             >
                               {checked ? "x" : ""}
                             </span>
@@ -375,7 +377,7 @@ export default function LabBookingPage() {
                   onClick={() =>
                     applySelectedDate(
                       parseDateInput(getDefaultBookingDateString()) ||
-                        getMinBookingDate(),
+                      getMinBookingDate(),
                     )
                   }
                   className="h-9 rounded-lg border border-border-light bg-transparent px-3 text-xs font-semibold uppercase text-text-main transition-colors hover:bg-white focus:border-primary focus:outline-none"
@@ -473,13 +475,12 @@ export default function LabBookingPage() {
                           return (
                             <div
                               key={`${lab.id}-${startTime}`}
-                              className={`flex h-20 flex-col items-center justify-center rounded-xl border px-2 text-center text-xs font-semibold ${
-                                status === "pending"
+                              className={`flex h-20 flex-col items-center justify-center rounded-xl border px-2 text-center text-xs font-semibold ${status === "pending"
                                   ? "border-purple-200 bg-purple-50 text-purple-700"
                                   : status === "class"
                                     ? "border-blue-200 bg-blue-50 text-blue-700"
-                                  : "border-primary/20 bg-white text-primary"
-                              }`}
+                                    : "border-primary/20 bg-white text-primary"
+                                }`}
                             >
                               <span>
                                 {status === "pending"
@@ -512,9 +513,6 @@ export default function LabBookingPage() {
             ) : null}
           </div>
 
-          <div className="rounded-xl border border-border-light bg-white px-4 py-3 text-sm text-text-muted">
-            Click any available lab time slot to start your booking.
-          </div>
         </div>
       </section>
     </main>

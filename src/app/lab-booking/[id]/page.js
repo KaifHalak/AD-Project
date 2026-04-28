@@ -280,7 +280,11 @@ export default function LabReservationPage() {
   const durationText = formatDuration(startTime, endTime);
   const total =
     getDurationHours(startTime, endTime) * (lab?.price_per_hour || 0);
-  const canSubmit = validationStatus === "available" && token.trim() && !isSubmitting;
+  const hasCompleteBookingFields = Boolean(
+    selectedDate && startTime && endTime && usage.trim() && token.trim(),
+  );
+  const canSubmit =
+    validationStatus === "available" && hasCompleteBookingFields && !isSubmitting;
 
   async function handleSubmitBooking(event) {
     event.preventDefault();
@@ -304,6 +308,11 @@ export default function LabReservationPage() {
               ? "This slot clashes with the teaching timetable."
               : "Time slot not available. Please select another time.",
       );
+      return;
+    }
+
+    if (!usage.trim()) {
+      setErrorMessage("Please describe your usage purpose.");
       return;
     }
 
