@@ -13,6 +13,7 @@ const REQUIRED_EMAIL_SUFFIX = "@graduate.utm.my";
 const ROLE_OPTIONS = [
   { value: "student", label: "Student" },
   { value: "staff", label: "Staff" },
+  { value: "pic", label: "PIC" },
 ];
 
 async function registerWithEmailPassword({ username, email, password, role }) {
