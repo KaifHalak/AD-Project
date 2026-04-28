@@ -4,22 +4,23 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
+import {
+  START_TIME_OPTIONS,
+  formatDateInput,
+  getAdjacentAllowedBookingDate,
+  getDefaultBookingDateString,
+  getMinBookingDate,
+  getMinBookingDateString,
+  isBookingDateAllowed,
+  isWeekendDate,
+  parseDateInput,
+} from "@/lib/bookingConstraints";
+import { getLabTimetableEvents } from "@/lib/mockTimetable";
 
-const START_TIMES = [
-  "08:00",
-  "09:00",
-  "10:00",
-  "11:00",
-  "12:00",
-  "13:00",
-  "14:00",
-  "15:00",
-  "16:00",
-  "17:00",
-];
+const START_TIMES = START_TIME_OPTIONS;
 
 function formatDateForDB(date) {
-  return date.toISOString().split("T")[0];
+  return formatDateInput(date);
 }
 
 function formatDisplayDate(date) {
@@ -43,7 +44,7 @@ function getSlotBooking(bookings, labId, startTime, endTime) {
   return bookings.find((booking) => {
     if (
       booking.lab_id !== labId ||
-      !["pending", "approved"].includes(booking.status)
+      !["pending", "approved", "class"].includes(booking.status)
     ) {
       return false;
     }
@@ -56,6 +57,10 @@ function getSlotBooking(bookings, labId, startTime, endTime) {
 }
 
 function getSlotStatus(booking) {
+  if (booking?.status === "class") {
+    return "class";
+  }
+
   if (!booking) {
     return "available";
   }
@@ -73,16 +78,47 @@ export default function LabBookingPage() {
 
   const [labs, setLabs] = useState([]);
   const [bookings, setBookings] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(
+    parseDateInput(getDefaultBookingDateString()) || getMinBookingDate(),
+  );
   const [selectedLabIds, setSelectedLabIds] = useState([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [localDateWarning, setLocalDateWarning] = useState("");
 
   const selectedDateString = formatDateForDB(selectedDate);
   const visibleLabs = selectedLabIds.length
     ? labs.filter((lab) => selectedLabIds.includes(lab.id))
     : labs;
+
+  function applySelectedDate(nextDate) {
+    if (!nextDate || Number.isNaN(nextDate.getTime())) {
+      setLocalDateWarning(
+        "Bookings must be at least 7 days in advance. Date adjusted automatically.",
+      );
+      setSelectedDate(getMinBookingDate());
+      return;
+    }
+
+    if (!isBookingDateAllowed(nextDate)) {
+      if (isWeekendDate(nextDate)) {
+        setLocalDateWarning(
+          "Weekends are not allowed. Date changed to the next valid weekday.",
+        );
+      } else {
+        setLocalDateWarning(
+          "Bookings must be at least 7 days in advance. Date adjusted automatically.",
+        );
+      }
+
+      setSelectedDate(getAdjacentAllowedBookingDate(nextDate, 1));
+      return;
+    }
+
+    setLocalDateWarning("");
+    setSelectedDate(nextDate);
+  }
 
   useEffect(() => {
     let isMounted = true;
@@ -139,7 +175,18 @@ export default function LabBookingPage() {
         setErrorMessage("Could not load lab bookings.");
         setBookings([]);
       } else {
-        setBookings(data || []);
+        const timetableEvents = (labs || []).flatMap((lab) =>
+          getLabTimetableEvents(lab.id, selectedDateString).map((event) => ({
+            id: `class-${event.id}-${lab.id}`,
+            lab_id: lab.id,
+            status: "class",
+            start_time: `${event.startTime}:00`,
+            end_time: `${event.endTime}:00`,
+            title: event.title,
+          })),
+        );
+
+        setBookings([...(data || []), ...timetableEvents]);
       }
 
       setIsLoading(false);
@@ -150,7 +197,7 @@ export default function LabBookingPage() {
     return () => {
       isMounted = false;
     };
-  }, [selectedDateString]);
+  }, [labs, selectedDateString]);
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -164,11 +211,7 @@ export default function LabBookingPage() {
   }, []);
 
   function changeDate(days) {
-    setSelectedDate((current) => {
-      const nextDate = new Date(current);
-      nextDate.setDate(current.getDate() + days);
-      return nextDate;
-    });
+    applySelectedDate(getAdjacentAllowedBookingDate(selectedDate, days));
   }
 
   function getFilterLabel() {
@@ -235,6 +278,12 @@ export default function LabBookingPage() {
               <p>3. Ask the responsible PIC for a 6-character token.</p>
               <p>4. Track approval from Booking Records.</p>
             </div>
+            <ul className="mt-3 list-disc space-y-1 pl-5">
+              <li>Earliest booking date is 7 days from today.</li>
+              <li>Weekends are not available for booking.</li>
+              <li>Office hours only: 08:00 to 18:00.</li>
+              <li>Class timetable slots are blocked automatically.</li>
+            </ul>
           </div>
 
           <div className="rounded-xl border border-border-light bg-white p-4 md:p-5">
@@ -323,10 +372,15 @@ export default function LabBookingPage() {
 
                 <button
                   type="button"
-                  onClick={() => setSelectedDate(new Date())}
+                  onClick={() =>
+                    applySelectedDate(
+                      parseDateInput(getDefaultBookingDateString()) ||
+                        getMinBookingDate(),
+                    )
+                  }
                   className="h-9 rounded-lg border border-border-light bg-transparent px-3 text-xs font-semibold uppercase text-text-main transition-colors hover:bg-white focus:border-primary focus:outline-none"
                 >
-                  Today
+                  Earliest
                 </button>
 
                 <Input
@@ -334,13 +388,22 @@ export default function LabBookingPage() {
                   value={selectedDateString}
                   onChange={(event) =>
                     event.target.value &&
-                    setSelectedDate(new Date(`${event.target.value}T00:00:00`))
+                    applySelectedDate(
+                      parseDateInput(event.target.value) || selectedDate,
+                    )
                   }
+                  min={getMinBookingDateString()}
                   onClick={(event) => event.target.showPicker?.()}
                   className="h-9 cursor-pointer rounded-lg bg-transparent text-xs sm:w-40"
                 />
               </div>
             </div>
+
+            {localDateWarning ? (
+              <p className="mt-4 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+                {localDateWarning}
+              </p>
+            ) : null}
 
             {errorMessage ? (
               <p className="mt-4 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
@@ -413,16 +476,24 @@ export default function LabBookingPage() {
                               className={`flex h-20 flex-col items-center justify-center rounded-xl border px-2 text-center text-xs font-semibold ${
                                 status === "pending"
                                   ? "border-purple-200 bg-purple-50 text-purple-700"
+                                  : status === "class"
+                                    ? "border-blue-200 bg-blue-50 text-blue-700"
                                   : "border-primary/20 bg-white text-primary"
                               }`}
                             >
                               <span>
-                                {status === "pending" ? "Pending" : "Reserved"}
+                                {status === "pending"
+                                  ? "Pending"
+                                  : status === "class"
+                                    ? "Class"
+                                    : "Reserved"}
                               </span>
                               <span className="mt-1 text-[11px] font-normal text-text-muted">
                                 {status === "pending"
                                   ? "Awaiting approval"
-                                  : "Unavailable"}
+                                  : status === "class"
+                                    ? "Timetabled session"
+                                    : "Unavailable"}
                               </span>
                             </div>
                           );

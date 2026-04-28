@@ -5,6 +5,11 @@ import {
   getRequesterProfile,
   verifyPicToken,
 } from "@/lib/bookingTokenAuth";
+import {
+  isBookingDateStringAllowed,
+  isOfficeTimeRange,
+} from "@/lib/bookingConstraints";
+import { findEquipmentTimetableConflict } from "@/lib/mockTimetable";
 
 export async function POST(request) {
   try {
@@ -27,6 +32,23 @@ export async function POST(request) {
     if (!equipmentId || !bookingDate || !startTime || !endTime) {
       return NextResponse.json(
         { error: "Missing required booking fields." },
+        { status: 400 },
+      );
+    }
+
+    if (!isBookingDateStringAllowed(bookingDate)) {
+      return NextResponse.json(
+        {
+          error:
+            "Bookings must be made at least 7 days in advance on weekdays.",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (!isOfficeTimeRange(startTime, endTime)) {
+      return NextResponse.json(
+        { error: "Bookings must be within office hours (08:00 to 18:00)." },
         { status: 400 },
       );
     }
@@ -64,6 +86,22 @@ export async function POST(request) {
       return NextResponse.json(
         { error: tokenVerification.error.message },
         { status: tokenVerification.error.status },
+      );
+    }
+
+    const timetableConflict = findEquipmentTimetableConflict({
+      equipmentId,
+      date: bookingDate,
+      startTime,
+      endTime,
+    });
+
+    if (timetableConflict) {
+      return NextResponse.json(
+        {
+          error: `Time slot clashes with scheduled class: ${timetableConflict.title}.`,
+        },
+        { status: 409 },
       );
     }
 

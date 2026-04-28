@@ -6,32 +6,28 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getCurrentSession } from "@/lib/supabase/auth";
 import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
+import {
+  END_TIME_OPTIONS,
+  START_TIME_OPTIONS,
+  getAdjacentAllowedBookingDate,
+  formatDateInput,
+  getDefaultBookingDateString,
+  getMinBookingDate,
+  getMinBookingDateString,
+  isBookingDateAllowed,
+  isBookingDateStringAllowed,
+  isOfficeTimeRange,
+  isWeekendDate,
+  parseDateInput,
+} from "@/lib/bookingConstraints";
+import {
+  findLabTimetableConflict,
+  getLabTimetableEvents,
+} from "@/lib/mockTimetable";
 
-const START_TIMES = [
-  "08:00",
-  "09:00",
-  "10:00",
-  "11:00",
-  "12:00",
-  "13:00",
-  "14:00",
-  "15:00",
-  "16:00",
-  "17:00",
-];
+const START_TIMES = START_TIME_OPTIONS;
 
-const END_TIMES = [
-  "09:00",
-  "10:00",
-  "11:00",
-  "12:00",
-  "13:00",
-  "14:00",
-  "15:00",
-  "16:00",
-  "17:00",
-  "18:00",
-];
+const END_TIMES = END_TIME_OPTIONS;
 
 const SUGGESTED_SLOTS = [
   ["09:00", "11:00"],
@@ -41,7 +37,7 @@ const SUGGESTED_SLOTS = [
 ];
 
 function formatDateForDB(date) {
-  return date.toISOString().split("T")[0];
+  return formatDateInput(date);
 }
 
 function formatDisplayDate(dateString) {
@@ -83,7 +79,7 @@ function getDurationHours(startTime, endTime) {
 }
 
 function isActiveBooking(booking) {
-  return ["pending", "approved"].includes(booking.status);
+  return ["pending", "approved", "class"].includes(booking.status);
 }
 
 function bookingOverlaps(booking, startTime, endTime) {
@@ -101,6 +97,10 @@ function getSlotBooking(bookings, startTime, endTime) {
 }
 
 function getSlotStatus(booking) {
+  if (booking?.status === "class") {
+    return "class";
+  }
+
   if (!booking) {
     return "available";
   }
@@ -117,9 +117,11 @@ export default function LabReservationPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const initialDate = searchParams.get("date") || formatDateForDB(new Date());
+  const defaultBookingDate = getDefaultBookingDateString();
+  const initialDate = searchParams.get("date") || defaultBookingDate;
   const initialStart = searchParams.get("start") || "09:00";
   const initialEnd = searchParams.get("end") || addHour(initialStart);
+  const rescheduleFrom = searchParams.get("rescheduleFrom") || "";
 
   const [lab, setLab] = useState(null);
   const [bookings, setBookings] = useState([]);
@@ -132,6 +134,33 @@ export default function LabReservationPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [localDateWarning, setLocalDateWarning] = useState("");
+
+  useEffect(() => {
+    const parsedSelectedDate = parseDateInput(selectedDate);
+
+    if (!parsedSelectedDate) {
+      setSelectedDate(defaultBookingDate);
+      return;
+    }
+
+    if (!isBookingDateAllowed(parsedSelectedDate)) {
+      if (isWeekendDate(parsedSelectedDate)) {
+        setLocalDateWarning(
+          "Weekends are not allowed. Date changed to the next valid weekday.",
+        );
+      } else if (parsedSelectedDate < getMinBookingDate()) {
+        setLocalDateWarning(
+          "Bookings must be at least 7 days in advance. Date adjusted automatically.",
+        );
+      }
+
+      setSelectedDate(defaultBookingDate);
+      return;
+    }
+
+    setLocalDateWarning("");
+  }, [defaultBookingDate, selectedDate]);
 
   useEffect(() => {
     let isMounted = true;
@@ -193,7 +222,18 @@ export default function LabReservationPage() {
         setErrorMessage("Could not load lab availability.");
         setBookings([]);
       } else {
-        setBookings(data || []);
+        const timetableEvents = getLabTimetableEvents(id, selectedDate).map(
+          (event) => ({
+            id: `class-${event.id}`,
+            lab_id: id,
+            status: "class",
+            start_time: `${event.startTime}:00`,
+            end_time: `${event.endTime}:00`,
+            title: event.title,
+          }),
+        );
+
+        setBookings([...(data || []), ...timetableEvents]);
       }
     }
 
@@ -205,23 +245,42 @@ export default function LabReservationPage() {
   }, [id, selectedDate]);
 
   function changeDate(days) {
-    const currentDate = new Date(`${selectedDate}T00:00:00`);
-    currentDate.setDate(currentDate.getDate() + days);
-    setSelectedDate(formatDateForDB(currentDate));
+    const currentDate = parseDateInput(selectedDate);
+    if (!currentDate) {
+      setSelectedDate(defaultBookingDate);
+      return;
+    }
+
+    setSelectedDate(
+      formatDateForDB(getAdjacentAllowedBookingDate(currentDate, days)),
+    );
   }
 
   const conflict = getSlotBooking(bookings, startTime, endTime);
+  const timetableConflict = findLabTimetableConflict({
+    labId: id,
+    date: selectedDate,
+    startTime,
+    endTime,
+  });
   const isTimeValid = startTime < endTime;
+  const isDateValid = isBookingDateStringAllowed(selectedDate);
+  const isOfficeRangeValid = isOfficeTimeRange(startTime, endTime);
   const validationStatus = !isTimeValid
     ? "invalid"
+    : !isDateValid
+      ? "date_invalid"
+      : !isOfficeRangeValid
+        ? "office_hours_invalid"
+        : timetableConflict
+          ? "class"
     : conflict
       ? getSlotStatus(conflict)
       : "available";
   const durationText = formatDuration(startTime, endTime);
   const total =
     getDurationHours(startTime, endTime) * (lab?.price_per_hour || 0);
-  const canSubmit =
-    validationStatus === "available" && token.trim() && !isSubmitting;
+  const canSubmit = validationStatus === "available" && token.trim() && !isSubmitting;
 
   async function handleSubmitBooking(event) {
     event.preventDefault();
@@ -236,7 +295,15 @@ export default function LabReservationPage() {
     const formattedToken = token.trim().toUpperCase();
 
     if (validationStatus !== "available") {
-      setErrorMessage("Time slot not available. Please select another time.");
+      setErrorMessage(
+        validationStatus === "date_invalid"
+          ? "Bookings must be at least 7 days in advance on weekdays."
+          : validationStatus === "office_hours_invalid"
+            ? "Bookings must be within office hours (08:00 to 18:00)."
+            : validationStatus === "class"
+              ? "This slot clashes with the teaching timetable."
+              : "Time slot not available. Please select another time.",
+      );
       return;
     }
 
@@ -360,6 +427,20 @@ export default function LabReservationPage() {
                 account by the PIC. Submitted bookings stay pending until they
                 are approved.
               </p>
+              <ul className="mt-3 list-disc space-y-1 pl-5">
+                <li>Earliest booking date is 7 days from today.</li>
+                <li>Weekends are not available for booking.</li>
+                <li>Office hours only: 08:00 to 18:00.</li>
+                <li>Class timetable slots are blocked automatically.</li>
+              </ul>
+
+              {rescheduleFrom ? (
+                <p className="mt-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-warning">
+                  You are creating a new booking request from approved booking {" "}
+                  <span className="font-semibold">{rescheduleFrom}</span>. Your
+                  original booking remains active.
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -413,10 +494,10 @@ export default function LabReservationPage() {
                   <Button
                     type="button"
                     variant="secondary"
-                    onClick={() => setSelectedDate(formatDateForDB(new Date()))}
+                    onClick={() => setSelectedDate(defaultBookingDate)}
                     className="w-auto"
                   >
-                    Today
+                    Earliest
                   </Button>
 
                   <Input
@@ -425,11 +506,18 @@ export default function LabReservationPage() {
                     onChange={(event) =>
                       event.target.value && setSelectedDate(event.target.value)
                     }
+                    min={getMinBookingDateString()}
                     onClick={(event) => event.target.showPicker?.()}
                     className="cursor-pointer sm:w-44"
                   />
                 </div>
               </div>
+
+              {localDateWarning ? (
+                <p className="mb-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+                  {localDateWarning}
+                </p>
+              ) : null}
 
               <div className="overflow-x-auto pb-2">
                 <p className="mb-3 text-xs text-text-muted">
@@ -482,16 +570,24 @@ export default function LabReservationPage() {
                           className={`flex h-20 flex-col items-center justify-center rounded-xl border px-2 text-center text-xs font-semibold ${
                             status === "pending"
                               ? "border-purple-200 bg-purple-50 text-purple-700"
+                              : status === "class"
+                                ? "border-blue-200 bg-blue-50 text-blue-700"
                               : "border-primary/20 bg-white text-primary"
                           }`}
                         >
                           <span>
-                            {status === "pending" ? "Pending" : "Reserved"}
+                            {status === "pending"
+                              ? "Pending"
+                              : status === "class"
+                                ? "Class"
+                                : "Reserved"}
                           </span>
                           <span className="mt-1 text-[11px] font-normal text-text-muted">
                             {status === "pending"
                               ? "Awaiting approval"
-                              : "Unavailable"}
+                              : status === "class"
+                                ? "Timetabled session"
+                                : "Unavailable"}
                           </span>
                         </div>
                       );
@@ -518,6 +614,7 @@ export default function LabReservationPage() {
                     onChange={(event) =>
                       event.target.value && setSelectedDate(event.target.value)
                     }
+                    min={getMinBookingDateString()}
                   />
                 </div>
 
@@ -626,6 +723,12 @@ export default function LabReservationPage() {
                   ? "Slot is available"
                   : validationStatus === "pending"
                     ? "Slot currently requested by another user"
+                    : validationStatus === "class"
+                      ? "Slot blocked by class timetable"
+                    : validationStatus === "date_invalid"
+                      ? "Date must be on a weekday and at least 7 days ahead"
+                    : validationStatus === "office_hours_invalid"
+                      ? "Time must be within office hours (08:00 to 18:00)"
                     : validationStatus === "invalid"
                       ? "End time must be after start time"
                       : "Time slot conflicts with an existing booking"}

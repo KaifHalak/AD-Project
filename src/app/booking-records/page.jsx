@@ -277,7 +277,11 @@ export default function BookingRecordsPage() {
                   <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
                     {booking.status === "approved" ? (
                       <Link
-                        href={`/booking-reschedule?id=${booking.id}&type=${booking.booking_type}&name=${encodeURIComponent(booking.resource_name)}`}
+                        href={
+                          booking.booking_type === "lab"
+                            ? `/lab-booking/${encodeURIComponent(booking.item_id)}?date=${booking.booking_date}&start=${formatTime(booking.start_time)}&end=${formatTime(booking.end_time)}&rescheduleFrom=${booking.id}`
+                            : `/equipment-booking/${encodeURIComponent(booking.item_id)}?date=${booking.booking_date}&start=${formatTime(booking.start_time)}&end=${formatTime(booking.end_time)}&rescheduleFrom=${booking.id}`
+                        }
                         className="inline-flex h-11 items-center justify-center rounded-xl bg-primary px-4 text-base font-semibold text-white transition-colors hover:bg-primary-hover"
                       >
                         Reschedule

@@ -1,23 +1,44 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getCurrentSession } from "@/lib/supabase/auth";
 import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  END_TIME_OPTIONS,
+  START_TIME_OPTIONS,
+  formatDateInput,
+  getAdjacentAllowedBookingDate,
+  getDefaultBookingDateString,
+  getMinBookingDate,
+  getMinBookingDateString,
+  isBookingDateAllowed,
+  isBookingDateStringAllowed,
+  isOfficeTimeRange,
+  isWeekendDate,
+  parseDateInput,
+  toMinutes,
+} from "@/lib/bookingConstraints";
+import {
+  findEquipmentTimetableConflict,
+  getEquipmentTimetableEvents,
+} from "@/lib/mockTimetable";
 
 export default function EquipmentBookingPage() {
   const { id } = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [equipment, setEquipment] = useState(null);
   const [bookings, setBookings] = useState([]);
 
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState(
+    parseDateInput(getDefaultBookingDateString()) || getMinBookingDate(),
+  );
 
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("11:00");
-  const toHour = (t) => parseInt(t.split(":")[0]);
 
   const [usage, setUsage] = useState("");
   const [token, setToken] = useState("");
@@ -25,13 +46,18 @@ export default function EquipmentBookingPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
-  const times = [
-    "08:00","09:00","10:00","11:00","12:00",
-    "13:00","14:00","15:00","16:00","17:00","18:00"
-  ];
+  const times = [...START_TIME_OPTIONS, "18:00"];
+  const [localDateWarning, setLocalDateWarning] = useState("");
+  const [rescheduleFromId, setRescheduleFromId] = useState("");
+
+  const normalizeTime = (value) => String(value || "").slice(0, 5);
+  const addHour = (time) => {
+    const nextHour = Number(time.split(":")[0]) + 1;
+    return `${String(nextHour).padStart(2, "0")}:00`;
+  };
 
   // ===== 日期处理 =====
-  const formatDateForDB = (d) => d.toISOString().split("T")[0];
+  const formatDateForDB = (d) => formatDateInput(d);
 
   const formatDate = (d) =>
     d.toLocaleDateString("en-US", {
@@ -41,10 +67,69 @@ export default function EquipmentBookingPage() {
     });
 
   const changeDate = (offset) => {
-    const newDate = new Date(currentDate);
-    newDate.setDate(currentDate.getDate() + offset);
-    setCurrentDate(newDate);
+    setCurrentDate((current) => getAdjacentAllowedBookingDate(current, offset));
   };
+
+  useEffect(() => {
+    const rescheduleFrom = searchParams.get("rescheduleFrom") || "";
+    const prefillDate = searchParams.get("date") || "";
+    const prefillStart = searchParams.get("start") || "";
+    const prefillEnd = searchParams.get("end") || "";
+
+    if (rescheduleFrom) {
+      setRescheduleFromId(rescheduleFrom);
+    }
+
+    if (prefillDate) {
+      const parsed = parseDateInput(prefillDate);
+      if (parsed) {
+        setCurrentDate(parsed);
+      }
+    }
+
+    if (START_TIME_OPTIONS.includes(prefillStart)) {
+      setStartTime(prefillStart);
+    }
+
+    if (END_TIME_OPTIONS.includes(prefillEnd)) {
+      setEndTime(prefillEnd);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (endTime > startTime) {
+      return;
+    }
+
+    const nextEndTime = END_TIME_OPTIONS.find((time) => time > startTime);
+    if (nextEndTime) {
+      setEndTime(nextEndTime);
+    }
+  }, [endTime, startTime]);
+
+  useEffect(() => {
+    if (!currentDate || Number.isNaN(currentDate.getTime())) {
+      setCurrentDate(getMinBookingDate());
+      return;
+    }
+
+    if (!isBookingDateAllowed(currentDate)) {
+      if (isWeekendDate(currentDate)) {
+        setLocalDateWarning(
+          "Weekends are not allowed. Date changed to the next valid weekday.",
+        );
+      } else if (currentDate < getMinBookingDate()) {
+        setLocalDateWarning(
+          "Bookings must be at least 7 days in advance. Date adjusted automatically.",
+        );
+      }
+
+      setCurrentDate(getAdjacentAllowedBookingDate(currentDate, 1));
+      return;
+    }
+
+    setLocalDateWarning("");
+  }, [currentDate]);
 
   // ===== get equipment =====
   useEffect(() => {
@@ -74,7 +159,19 @@ export default function EquipmentBookingPage() {
         .eq("equipment_id", id)
         .eq("booking_date", formatDateForDB(currentDate));
 
-      setBookings(data || []);
+      const timetableEvents = getEquipmentTimetableEvents(
+        id,
+        formatDateForDB(currentDate),
+      ).map((event) => ({
+        id: `class-${event.id}`,
+        equipment_id: id,
+        status: "class",
+        start_time: `${event.startTime}:00`,
+        end_time: `${event.endTime}:00`,
+        title: event.title,
+      }));
+
+      setBookings([...(data || []), ...timetableEvents]);
     }
 
     fetchBookings();
@@ -94,13 +191,18 @@ export default function EquipmentBookingPage() {
 
   //status
   const getStatus = (time) => {
-    const hour = parseInt(time);
+    const slotStart = toMinutes(time);
+    const slotEnd = toMinutes(addHour(time));
 
     for (let b of bookings) {
-      const start = parseInt(b.start_time);
-      const end = parseInt(b.end_time);
+      const start = toMinutes(normalizeTime(b.start_time));
+      const end = toMinutes(normalizeTime(b.end_time));
 
-      if (["pending", "approved"].includes(b.status) && hour >= start && hour < end) {
+      if (
+        ["pending", "approved", "class"].includes(b.status) &&
+        slotStart < end &&
+        slotEnd > start
+      ) {
         return b.status;
       }
     }
@@ -109,23 +211,51 @@ export default function EquipmentBookingPage() {
   };
 
   //duration / total
-  const duration = parseInt(endTime) - parseInt(startTime);
+  const durationMinutes = toMinutes(endTime) - toMinutes(startTime);
+  const duration = Math.max(0, durationMinutes / 60);
   const total = duration * equipment.price_per_hour;
 
   //  check availability
   const isTimeAvailable = () => {
-    const start = toHour(startTime);
-    const end = toHour(endTime);
+    const start = toMinutes(startTime);
+    const end = toMinutes(endTime);
 
     return !bookings.some((b) => {
-      const bStart = toHour(b.start_time);
-      const bEnd = toHour(b.end_time);
+      const bStart = toMinutes(normalizeTime(b.start_time));
+      const bEnd = toMinutes(normalizeTime(b.end_time));
 
-      return ["pending", "approved"].includes(b.status) && start < bEnd && end > bStart;
+      return (
+        ["pending", "approved", "class"].includes(b.status) &&
+        start < bEnd &&
+        end > bStart
+      );
     });
   };
 
   const available = isTimeAvailable();
+  const selectedDateString = formatDateForDB(currentDate);
+  const timetableConflict = findEquipmentTimetableConflict({
+    equipmentId: id,
+    date: selectedDateString,
+    startTime,
+    endTime,
+  });
+  const isTimeValid = startTime < endTime;
+  const isDateValid = isBookingDateStringAllowed(selectedDateString);
+  const isOfficeRangeValid = isOfficeTimeRange(startTime, endTime);
+  const validationStatus = !isTimeValid
+    ? "invalid"
+    : !isDateValid
+    ? "date_invalid"
+    : !isOfficeRangeValid
+      ? "office_hours_invalid"
+      : timetableConflict
+        ? "class"
+        : available
+          ? "available"
+          : "conflict";
+  const canSubmit =
+    validationStatus === "available" && token.trim() && !isSubmitting;
 
   //handle booking
   const handleSubmitBooking = async (e) => {
@@ -141,8 +271,18 @@ export default function EquipmentBookingPage() {
     try {
       setIsSubmitting(true);
 
-      if (!available) {
-        setErrorMessage("Time slot not available. Please select another time.");
+      if (validationStatus !== "available") {
+        setErrorMessage(
+          validationStatus === "date_invalid"
+            ? "Bookings must be at least 7 days in advance on weekdays."
+            : validationStatus === "office_hours_invalid"
+              ? "Bookings must be within office hours (08:00 to 18:00)."
+              : validationStatus === "class"
+                ? "This slot clashes with the teaching timetable."
+                : validationStatus === "invalid"
+                  ? "End time must be after start time."
+                : "Time slot not available. Please select another time.",
+        );
         return;
       }
 
@@ -167,7 +307,7 @@ export default function EquipmentBookingPage() {
         },
         body: JSON.stringify({
           equipmentId: id,
-          bookingDate: formatDateForDB(currentDate),
+          bookingDate: selectedDateString,
           startTime: `${startTime}:00`,
           endTime: `${endTime}:00`,
           picCode: formattedToken,
@@ -234,6 +374,20 @@ export default function EquipmentBookingPage() {
               the 6-character PIC token assigned to your account. The request
               will appear as pending until it is approved.
             </p>
+            <ul className="mt-3 list-disc space-y-1 pl-5">
+              <li>Earliest booking date is 7 days from today.</li>
+              <li>Weekends are not available for booking.</li>
+              <li>Office hours only: 08:00 to 18:00.</li>
+              <li>Class timetable slots are blocked automatically.</li>
+            </ul>
+
+            {rescheduleFromId ? (
+              <p className="mt-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-warning">
+                You are creating a new booking request from approved booking {" "}
+                <span className="font-semibold">{rescheduleFromId}</span>. Your
+                original booking remains active.
+              </p>
+            ) : null}
           </div>
 
           <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
@@ -271,23 +425,38 @@ export default function EquipmentBookingPage() {
                 <Button
                   type="button"
                   variant="secondary"
-                  onClick={() => setCurrentDate(new Date())}
+                  onClick={() =>
+                    setCurrentDate(
+                      parseDateInput(getDefaultBookingDateString()) ||
+                        getMinBookingDate(),
+                    )
+                  }
                   className="w-auto text-sm"
                 >
-                  Today
+                  Earliest
                 </Button>
 
                 <Input
                   type="date"
-                  value={currentDate.toISOString().split("T")[0]}
+                  value={selectedDateString}
                   onChange={(event) =>
-                    setCurrentDate(new Date(event.target.value))
+                    event.target.value &&
+                    setCurrentDate(
+                      parseDateInput(event.target.value) || currentDate,
+                    )
                   }
+                  min={getMinBookingDateString()}
                   onClick={(event) => event.target.showPicker?.()}
                   className="cursor-pointer sm:w-44"
                 />
               </div>
             </div>
+
+            {localDateWarning ? (
+              <p className="mb-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+                {localDateWarning}
+              </p>
+            ) : null}
 
             <div className="overflow-x-auto pb-4">
               <p className="mb-3 text-xs text-text-muted">
@@ -347,12 +516,15 @@ export default function EquipmentBookingPage() {
                           status === "approved"
                             ? "border-primary/20 bg-white text-primary"
                             : status === "pending"
-                              ? "border-yellow-200 bg-yellow-50 text-yellow-700"
-                              : "border-green-200 bg-green-50 text-green-700"
+                              ? "border-purple-200 bg-purple-50 text-purple-700"
+                              : status === "class"
+                                ? "border-blue-200 bg-blue-50 text-blue-700"
+                               : "border-green-200 bg-green-50 text-green-700"
                         }`}
                       >
                         {status === "approved" && "RESERVED"}
                         {status === "pending" && "PENDING"}
+                        {status === "class" && "CLASS"}
                         {status === "available" && "AVAILABLE"}
                       </div>
                     );
@@ -394,7 +566,7 @@ export default function EquipmentBookingPage() {
                   onChange={(event) => setStartTime(event.target.value)}
                   className="h-11 w-full rounded-xl border border-border-light bg-white px-3 text-text-main outline-none transition-colors focus:border-primary"
                 >
-                  {times.map((time) => (
+                  {START_TIME_OPTIONS.map((time) => (
                     <option key={time}>{time}</option>
                   ))}
                 </select>
@@ -409,7 +581,7 @@ export default function EquipmentBookingPage() {
                   onChange={(event) => setEndTime(event.target.value)}
                   className="h-11 w-full rounded-xl border border-border-light bg-white px-3 text-text-main outline-none transition-colors focus:border-primary"
                 >
-                  {times
+                  {END_TIME_OPTIONS
                     .filter((time) => time > startTime)
                     .map((time) => (
                       <option key={time}>{time}</option>
@@ -431,15 +603,15 @@ export default function EquipmentBookingPage() {
                   ["15:00", "17:00"],
                 ].map(([suggestedStart, suggestedEnd]) => {
                   const suggestedDuration =
-                    parseInt(suggestedEnd) - parseInt(suggestedStart);
+                    (toMinutes(suggestedEnd) - toMinutes(suggestedStart)) / 60;
 
                   const slotAvailable = !bookings.some((booking) => {
-                    const bookingStart = parseInt(booking.start_time);
-                    const bookingEnd = parseInt(booking.end_time);
+                    const bookingStart = toMinutes(normalizeTime(booking.start_time));
+                    const bookingEnd = toMinutes(normalizeTime(booking.end_time));
                     return (
-                      ["pending", "approved"].includes(booking.status) &&
-                      parseInt(suggestedStart) < bookingEnd &&
-                      parseInt(suggestedEnd) > bookingStart
+                      ["pending", "approved", "class"].includes(booking.status) &&
+                      toMinutes(suggestedStart) < bookingEnd &&
+                      toMinutes(suggestedEnd) > bookingStart
                     );
                   });
 
@@ -477,12 +649,24 @@ export default function EquipmentBookingPage() {
 
               <div
                 className={`mt-6 rounded-xl border px-4 py-3 text-sm font-semibold ${
-                  available
+                  validationStatus === "available"
                     ? "border-green-200 bg-green-50 text-green-700"
+                    : validationStatus === "class"
+                      ? "border-blue-200 bg-blue-50 text-blue-700"
                     : "border-warning/20 bg-white text-warning"
                 }`}
               >
-                {available ? "Slot is available" : "Time slot not available"}
+                {validationStatus === "available"
+                  ? "Slot is available"
+                  : validationStatus === "class"
+                    ? "Slot blocked by class timetable"
+                    : validationStatus === "invalid"
+                      ? "End time must be after start time"
+                    : validationStatus === "date_invalid"
+                      ? "Date must be on a weekday and at least 7 days ahead"
+                      : validationStatus === "office_hours_invalid"
+                        ? "Time must be within office hours (08:00 to 18:00)"
+                        : "Time slot not available"}
               </div>
             </div>
           </div>
@@ -537,10 +721,14 @@ export default function EquipmentBookingPage() {
 
             <Button
               onClick={handleSubmitBooking}
-              disabled={isSubmitting}
+              disabled={!canSubmit}
               className="md:w-auto"
             >
-              {isSubmitting ? "Submitting..." : "Book Now"}
+                {isSubmitting
+                  ? "Submitting..."
+                  : validationStatus === "available"
+                    ? "Book Now"
+                    : "Cannot Book - Conflict"}
             </Button>
           </div>
         </div>

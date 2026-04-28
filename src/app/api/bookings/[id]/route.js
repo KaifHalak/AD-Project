@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase/supabaseAdmin";
 import { getSupabaseServerClient } from "@/lib/supabase/supabaseServer";
 
-const ALLOWED_STATUSES = ["pending", "approved", "rejected", "cancelled"];
+const ALLOWED_STATUSES = ["cancelled"];
 
 function getAccessTokenFromHeader(request) {
   const authorizationHeader = request.headers.get("authorization") || "";
@@ -86,29 +86,6 @@ async function getSourceBooking(admin, parsedBooking) {
     .maybeSingle();
 
   return { data, error };
-}
-
-async function hasScheduleConflict({
-  admin,
-  parsedBooking,
-  currentBooking,
-  bookingDate,
-  startTime,
-  endTime,
-}) {
-  const { data, error } = await admin
-    .from(parsedBooking.tableName)
-    .select("id")
-    .eq(parsedBooking.itemColumn, currentBooking[parsedBooking.itemColumn])
-    .eq("booking_date", bookingDate)
-    .lt("start_time", endTime)
-    .gt("end_time", startTime)
-    .in("status", ["pending", "approved"])
-    .neq("id", parsedBooking.sourceId)
-    .limit(1)
-    .maybeSingle();
-
-  return { conflict: data, error };
 }
 
 export async function GET(request, { params }) {
@@ -212,53 +189,21 @@ export async function PATCH(request, { params }) {
     if (status) {
       if (!ALLOWED_STATUSES.includes(status)) {
         return NextResponse.json(
-          { error: "Invalid status value." },
+          { error: "Only cancellation is allowed from this endpoint." },
           { status: 400 },
         );
       }
       updates.status = status;
     }
 
-    const nextBookingDate = booking_date || existing.booking_date;
-    const nextStartTime = start_time || existing.start_time;
-    const nextEndTime = end_time || existing.end_time;
-    const isRescheduling = Boolean(booking_date || start_time || end_time);
-
-    if (isRescheduling) {
-      if (nextStartTime >= nextEndTime) {
-        return NextResponse.json(
-          { error: "End time must be after start time." },
-          { status: 400 },
-        );
-      }
-
-      const { conflict, error: conflictError } = await hasScheduleConflict({
-        admin,
-        parsedBooking,
-        currentBooking: existing,
-        bookingDate: nextBookingDate,
-        startTime: nextStartTime,
-        endTime: nextEndTime,
-      });
-
-      if (conflictError) {
-        console.error("Error checking booking conflict:", conflictError);
-        return NextResponse.json(
-          { error: "Could not check booking availability." },
-          { status: 500 },
-        );
-      }
-
-      if (conflict) {
-        return NextResponse.json(
-          { error: "Time slot not available. Please select another time." },
-          { status: 409 },
-        );
-      }
-
-      updates.booking_date = nextBookingDate;
-      updates.start_time = nextStartTime;
-      updates.end_time = nextEndTime;
+    if (booking_date || start_time || end_time) {
+      return NextResponse.json(
+        {
+          error:
+            "Rescheduling now creates a new booking request. Use the booking page to submit a new request.",
+        },
+        { status: 400 },
+      );
     }
 
     if (Object.keys(updates).length === 0) {
