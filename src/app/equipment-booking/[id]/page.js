@@ -319,6 +319,7 @@ export default function EquipmentBookingPage() {
           startTime: `${startTime}:00`,
           endTime: `${endTime}:00`,
           picCode: formattedToken,
+          usage: usage,
         }),
       });
 
