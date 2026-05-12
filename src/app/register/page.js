@@ -14,6 +14,8 @@ const ROLE_OPTIONS = [
   { value: "student", label: "Student" },
   { value: "staff", label: "Staff" },
   { value: "pic", label: "PIC" },
+  { value: "ppmu", label: "PPMU" },
+  { value: "unit_leader", label: "Unit Leader" },
 ];
 
 async function registerWithEmailPassword({ username, email, password, role }) {

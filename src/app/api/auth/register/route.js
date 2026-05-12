@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase/supabaseAdmin";
 
-const ALLOWED_ROLES = new Set(["student", "staff", "pic"]);
+const ALLOWED_ROLES = new Set([
+  "student",
+  "staff",
+  "pic",
+  "ppmu",
+  "unit_leader",
+]);
 const REQUIRED_EMAIL_SUFFIX = "@graduate.utm.my";
 
 function isEmailFormatValid(email) {
@@ -43,7 +49,7 @@ function getRegistrationValidationError({ username, email, password, role }) {
   }
 
   if (!ALLOWED_ROLES.has(role)) {
-    return "Role must be one of: student, staff, pic.";
+    return "Role must be one of: student, staff, pic, ppmu, unit_leader.";
   }
 
   return "";
