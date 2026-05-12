@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { formatRmFromUsd } from "@/lib/currency";
 
 export default function EquipmentCard({ item }) {
   const router = useRouter();
@@ -32,14 +33,25 @@ export default function EquipmentCard({ item }) {
   };
 
   const handleBooking = () => {
+    if (item.status === "maintenance") {
+      return;
+    }
+
     router.push(`/equipment-booking/${item.id}`);
   };
+
+  const isUnderMaintenance = item.status === "maintenance";
 
   return (
     <button
       type="button"
       onClick={handleBooking}
-      className="h-full rounded-xl border border-border-light bg-white p-4 text-left transition-colors hover:border-primary focus:border-primary focus:outline-none md:p-5"
+      disabled={isUnderMaintenance}
+      className={`h-full rounded-xl border border-border-light bg-white p-4 text-left transition-colors focus:border-primary focus:outline-none md:p-5 ${
+        isUnderMaintenance
+          ? "cursor-not-allowed opacity-70"
+          : "hover:border-primary"
+      }`}
     >
       <div className="mb-5 flex items-center justify-between gap-3">
         <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-primary/10 bg-background-main text-2xl">
@@ -79,7 +91,7 @@ export default function EquipmentCard({ item }) {
       </p>
 
       <p className="text-xl font-semibold text-primary">
-        ${item.price_per_hour}/hr
+        {formatRmFromUsd(item.price_per_hour)}/hr
       </p>
     </button>
   );

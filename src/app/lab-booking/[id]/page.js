@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getCurrentSession } from "@/lib/supabase/auth";
+import { getCurrentSession, getCurrentUser } from "@/lib/supabase/auth";
+import { getRecordByColumn } from "@/lib/supabase/db";
 import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
+import { formatRmFromUsd } from "@/lib/currency";
 import {
   END_TIME_OPTIONS,
   START_TIME_OPTIONS,
@@ -112,6 +114,10 @@ function getSlotStatus(booking) {
   return "approved";
 }
 
+function isUnderMaintenance(item) {
+  return item?.status === "maintenance";
+}
+
 export default function LabReservationPage() {
   const { id } = useParams();
   const router = useRouter();
@@ -130,6 +136,7 @@ export default function LabReservationPage() {
   const [endTime, setEndTime] = useState(initialEnd);
   const [usage, setUsage] = useState("");
   const [token, setToken] = useState("");
+  const [requesterRole, setRequesterRole] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -161,6 +168,37 @@ export default function LabReservationPage() {
 
     setLocalDateWarning("");
   }, [defaultBookingDate, selectedDate]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadRequesterRole() {
+      const { data: userData, error: userError } = await getCurrentUser();
+
+      if (!isMounted || userError || !userData?.user?.email) {
+        return;
+      }
+
+      const { data: profile, error: profileError } = await getRecordByColumn(
+        "users",
+        "email",
+        userData.user.email,
+        "role",
+      );
+
+      if (!isMounted || profileError || !profile) {
+        return;
+      }
+
+      setRequesterRole(profile.role || "");
+    }
+
+    loadRequesterRole();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -268,6 +306,8 @@ export default function LabReservationPage() {
   const isOfficeRangeValid = isOfficeTimeRange(startTime, endTime);
   const validationStatus = !isTimeValid
     ? "invalid"
+    : isUnderMaintenance(lab)
+      ? "maintenance"
     : !isDateValid
       ? "date_invalid"
       : !isOfficeRangeValid
@@ -280,8 +320,13 @@ export default function LabReservationPage() {
   const durationText = formatDuration(startTime, endTime);
   const total =
     getDurationHours(startTime, endTime) * (lab?.price_per_hour || 0);
+  const isPicRequester = requesterRole === "pic";
   const hasCompleteBookingFields = Boolean(
-    selectedDate && startTime && endTime && usage.trim() && token.trim(),
+    selectedDate &&
+      startTime &&
+      endTime &&
+      usage.trim() &&
+      (isPicRequester || token.trim()),
   );
   const canSubmit =
     validationStatus === "available" && hasCompleteBookingFields && !isSubmitting;
@@ -306,6 +351,8 @@ export default function LabReservationPage() {
             ? "Bookings must be within office hours (08:00 to 18:00)."
             : validationStatus === "class"
               ? "This slot clashes with the teaching timetable."
+              : validationStatus === "maintenance"
+                ? "This lab is under maintenance and cannot be booked."
               : "Time slot not available. Please select another time.",
       );
       return;
@@ -316,7 +363,7 @@ export default function LabReservationPage() {
       return;
     }
 
-    if (!formattedToken) {
+    if (!isPicRequester && !formattedToken) {
       setErrorMessage("Please enter your authorization token.");
       return;
     }
@@ -343,7 +390,8 @@ export default function LabReservationPage() {
           bookingDate: selectedDate,
           startTime: `${startTime}:00`,
           endTime: `${endTime}:00`,
-          picCode: formattedToken,
+          picCode: isPicRequester ? "" : formattedToken,
+          bookingReason: usage.trim(),
         }),
       });
 
@@ -431,10 +479,11 @@ export default function LabReservationPage() {
             <div className="rounded-xl border border-border-light bg-white p-4 text-sm text-text-muted md:p-5">
               <p className="font-semibold text-primary">Before you submit</p>
               <p className="mt-2">
-                Choose a free time slot, describe your research objective, then
-                enter the 6-character authorization token assigned to your
-                account by the PIC. Submitted bookings stay pending until they
-                are approved.
+                Choose a free time slot, describe your research objective, then{" "}
+                {isPicRequester
+                  ? "submit the booking request for approval."
+                  : "enter the 6-character authorization token assigned to your account by the PIC."}{" "}
+                Submitted bookings stay pending until they are approved.
               </p>
               <ul className="mt-3 list-disc space-y-1 pl-5">
                 <li>Earliest booking date is 7 days from today.</li>
@@ -556,6 +605,20 @@ export default function LabReservationPage() {
                       const slotEnd = addHour(time);
                       const booking = getSlotBooking(bookings, time, slotEnd);
                       const status = getSlotStatus(booking);
+
+                      if (isUnderMaintenance(lab)) {
+                        return (
+                          <div
+                            key={time}
+                            className="flex h-20 flex-col items-center justify-center rounded-xl border border-yellow-200 bg-yellow-50 px-2 text-center text-xs font-semibold text-yellow-700"
+                          >
+                            <span>Maintenance</span>
+                            <span className="mt-1 text-[11px] font-normal text-text-muted">
+                              Unavailable
+                            </span>
+                          </div>
+                        );
+                      }
 
                       if (status === "available") {
                         return (
@@ -684,20 +747,23 @@ export default function LabReservationPage() {
                       suggestedStart,
                       suggestedEnd,
                     );
-                    const slotAvailable = !suggestedConflict;
+                    const slotAvailable =
+                      !suggestedConflict && !isUnderMaintenance(lab);
 
                     return (
                       <button
                         type="button"
                         key={`${suggestedStart}-${suggestedEnd}`}
+                        disabled={!slotAvailable}
                         onClick={() => {
+                          if (!slotAvailable) return;
                           setStartTime(suggestedStart);
                           setEndTime(suggestedEnd);
                         }}
-                        className={`rounded-xl border p-4 text-left transition-colors hover:border-primary ${
+                        className={`rounded-xl border p-4 text-left transition-colors ${
                           slotAvailable
-                            ? "border-border-light bg-background-main"
-                            : "border-warning/20 bg-white"
+                            ? "border-border-light bg-background-main hover:border-primary"
+                            : "cursor-not-allowed border-warning/20 bg-white opacity-70"
                         }`}
                       >
                         <p className="text-lg font-semibold text-text-main">
@@ -711,7 +777,11 @@ export default function LabReservationPage() {
                             slotAvailable ? "text-primary" : "text-warning"
                           }`}
                         >
-                          {slotAvailable ? "Quick Select" : "Not Available"}
+                          {slotAvailable
+                            ? "Quick Select"
+                            : isUnderMaintenance(lab)
+                              ? "Maintenance"
+                              : "Not Available"}
                         </p>
                       </button>
                     );
@@ -728,10 +798,12 @@ export default function LabReservationPage() {
                       : "border-warning/20 bg-white text-warning"
                 }`}
               >
-                {validationStatus === "available"
-                  ? "Slot is available"
-                  : validationStatus === "pending"
-                    ? "Slot currently requested by another user"
+              {validationStatus === "available"
+                ? "Slot is available"
+                : validationStatus === "maintenance"
+                  ? "This lab is under maintenance"
+                : validationStatus === "pending"
+                  ? "Slot currently requested by another user"
                     : validationStatus === "class"
                       ? "Slot blocked by class timetable"
                     : validationStatus === "date_invalid"
@@ -776,52 +848,74 @@ export default function LabReservationPage() {
             </div>
           </section>
 
-          <section className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              07 Authorization Token
-            </p>
-            <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
-              <p className="mb-3 text-sm text-text-muted">
-                Enter the 6-character token assigned to your account by the PIC.
-                Tokens cannot be shared between users and can be reused until
-                they expire.
+          {!isPicRequester ? (
+            <section className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                07 Authorization Token
               </p>
-              <Input
-                placeholder="Enter your token"
-                value={token}
-                maxLength={6}
-                onChange={(event) => setToken(event.target.value.toUpperCase())}
-              />
+              <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
+                <p className="mb-3 text-sm text-text-muted">
+                  Enter the 6-character token assigned to your account by the PIC.
+                  Tokens cannot be shared between users and can be reused until
+                  they expire.
+                </p>
+                <Input
+                  placeholder="Enter your token"
+                  value={token}
+                  maxLength={6}
+                  onChange={(event) => setToken(event.target.value.toUpperCase())}
+                />
 
+                {errorMessage ? (
+                  <p className="mt-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+                    {errorMessage}
+                  </p>
+                ) : null}
+
+                {successMessage ? (
+                  <p className="mt-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+                    {successMessage}
+                  </p>
+                ) : null}
+              </div>
+            </section>
+          ) : (
+            <>
               {errorMessage ? (
-                <p className="mt-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+                <p className="rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
                   {errorMessage}
                 </p>
               ) : null}
 
               {successMessage ? (
-                <p className="mt-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+                <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
                   {successMessage}
                 </p>
               ) : null}
-            </div>
-          </section>
+            </>
+          )}
 
           <div className="flex flex-col gap-4 border-t border-border-light pt-6 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
                 Est. Total
               </p>
-              <p className="text-3xl font-semibold text-primary">${total}.00</p>
+              <p className="text-3xl font-semibold text-primary">
+                {formatRmFromUsd(total)}
+              </p>
             </div>
 
             <div className="flex flex-col gap-3 md:items-end">
               <Button type="submit" disabled={!canSubmit} className="md:w-auto">
                 {isSubmitting
                   ? "Submitting..."
+                  : successMessage
+                    ? "Booking Successful"
                   : validationStatus === "available"
                     ? "Confirm Booking"
-                    : "Cannot Book - Conflict"}
+                    : validationStatus === "maintenance"
+                      ? "Under Maintenance"
+                      : "Cannot Book - Conflict"}
               </Button>
             </div>
           </div>

@@ -56,6 +56,10 @@ function getSlotBooking(bookings, labId, startTime, endTime) {
   });
 }
 
+function isUnderMaintenance(item) {
+  return item?.status === "maintenance";
+}
+
 function getSlotStatus(booking) {
   if (booking?.status === "class") {
     return "class";
@@ -236,6 +240,12 @@ export default function LabBookingPage() {
   }
 
   function handleSlotClick(labId, startTime) {
+    const lab = labs.find((item) => item.id === labId);
+
+    if (isUnderMaintenance(lab)) {
+      return;
+    }
+
     const endTime = addHour(startTime);
     router.push(
       `/lab-booking/${labId}?date=${selectedDateString}&start=${startTime}&end=${endTime}`,
@@ -458,6 +468,20 @@ export default function LabBookingPage() {
                             endTime,
                           );
                           const status = getSlotStatus(booking);
+
+                          if (isUnderMaintenance(lab)) {
+                            return (
+                              <div
+                                key={`${lab.id}-${startTime}`}
+                                className="flex h-20 flex-col items-center justify-center rounded-xl border border-yellow-200 bg-yellow-50 px-2 text-center text-xs font-semibold text-yellow-700"
+                              >
+                                <span>Maintenance</span>
+                                <span className="mt-1 text-[11px] font-normal text-text-muted">
+                                  Unavailable
+                                </span>
+                              </div>
+                            );
+                          }
 
                           if (status === "available") {
                             return (

@@ -101,8 +101,8 @@ export default function AppNavbar() {
     };
   }, [pathname]);
 
-  // Keep the login screen focused by hiding global navigation on root route.
-  if (pathname === "/") {
+  // Keep login and registration screens focused by hiding global navigation.
+  if (pathname === "/" || pathname === "/register") {
     return null;
   }
 

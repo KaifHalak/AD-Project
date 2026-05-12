@@ -2,8 +2,10 @@
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getCurrentSession } from "@/lib/supabase/auth";
+import { getCurrentSession, getCurrentUser } from "@/lib/supabase/auth";
+import { getRecordByColumn } from "@/lib/supabase/db";
 import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
+import { formatRmFromUsd } from "@/lib/currency";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -42,6 +44,7 @@ export default function EquipmentBookingPage() {
 
   const [usage, setUsage] = useState("");
   const [token, setToken] = useState("");
+  const [requesterRole, setRequesterRole] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -55,6 +58,7 @@ export default function EquipmentBookingPage() {
     const nextHour = Number(time.split(":")[0]) + 1;
     return `${String(nextHour).padStart(2, "0")}:00`;
   };
+  const isEquipmentUnderMaintenance = equipment?.status === "maintenance";
 
   // ===== 日期处理 =====
   const formatDateForDB = (d) => formatDateInput(d);
@@ -95,6 +99,37 @@ export default function EquipmentBookingPage() {
       setEndTime(prefillEnd);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadRequesterRole() {
+      const { data: userData, error: userError } = await getCurrentUser();
+
+      if (!isMounted || userError || !userData?.user?.email) {
+        return;
+      }
+
+      const { data: profile, error: profileError } = await getRecordByColumn(
+        "users",
+        "email",
+        userData.user.email,
+        "role",
+      );
+
+      if (!isMounted || profileError || !profile) {
+        return;
+      }
+
+      setRequesterRole(profile.role || "");
+    }
+
+    loadRequesterRole();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (endTime > startTime) {
@@ -245,6 +280,8 @@ export default function EquipmentBookingPage() {
   const isOfficeRangeValid = isOfficeTimeRange(startTime, endTime);
   const validationStatus = !isTimeValid
     ? "invalid"
+    : isEquipmentUnderMaintenance
+      ? "maintenance"
     : !isDateValid
     ? "date_invalid"
     : !isOfficeRangeValid
@@ -254,8 +291,13 @@ export default function EquipmentBookingPage() {
         : available
           ? "available"
           : "conflict";
+  const isPicRequester = requesterRole === "pic";
   const hasCompleteBookingFields = Boolean(
-    selectedDateString && startTime && endTime && usage.trim() && token.trim(),
+    selectedDateString &&
+      startTime &&
+      endTime &&
+      usage.trim() &&
+      (isPicRequester || token.trim()),
   );
   const canSubmit =
     validationStatus === "available" && hasCompleteBookingFields && !isSubmitting;
@@ -282,6 +324,8 @@ export default function EquipmentBookingPage() {
               ? "Bookings must be within office hours (08:00 to 18:00)."
               : validationStatus === "class"
                 ? "This slot clashes with the teaching timetable."
+                : validationStatus === "maintenance"
+                  ? "This equipment is under maintenance and cannot be booked."
                 : validationStatus === "invalid"
                   ? "End time must be after start time."
                 : "Time slot not available. Please select another time.",
@@ -294,7 +338,7 @@ export default function EquipmentBookingPage() {
         return;
       }
 
-      if (!formattedToken) {
+      if (!isPicRequester && !formattedToken) {
         setErrorMessage("Please enter your PIC token.");
         return;
       }
@@ -318,8 +362,8 @@ export default function EquipmentBookingPage() {
           bookingDate: selectedDateString,
           startTime: `${startTime}:00`,
           endTime: `${endTime}:00`,
-          picCode: formattedToken,
-          usage: usage,
+          picCode: isPicRequester ? "" : formattedToken,
+          bookingReason: usage.trim(),
         }),
       });
 
@@ -379,9 +423,11 @@ export default function EquipmentBookingPage() {
           <div className="rounded-xl border border-border-light bg-white p-4 text-sm text-text-muted md:p-5">
             <p className="font-semibold text-primary">Before you submit</p>
             <p className="mt-2">
-              Select an available time, describe the usage purpose, then enter
-              the 6-character PIC token assigned to your account. The request
-              will appear as pending until it is approved.
+              Select an available time, describe the usage purpose, then{" "}
+              {isPicRequester
+                ? "submit the booking request for approval."
+                : "enter the 6-character PIC token assigned to your account."}{" "}
+              The request will appear as pending until it is approved.
             </p>
             <ul className="mt-3 list-disc space-y-1 pl-5">
               <li>Earliest booking date is 7 days from today.</li>
@@ -517,24 +563,30 @@ export default function EquipmentBookingPage() {
                     if (index === times.length - 1) return null;
 
                     const status = getStatus(time);
+                    const displayStatus = isEquipmentUnderMaintenance
+                      ? "maintenance"
+                      : status;
 
                     return (
                       <div
                         key={time}
                         className={`flex h-24 items-center justify-center rounded-xl border text-sm font-semibold ${
-                          status === "approved"
+                          displayStatus === "maintenance"
+                            ? "border-yellow-200 bg-yellow-50 text-yellow-700"
+                            : displayStatus === "approved"
                             ? "border-primary/20 bg-white text-primary"
-                            : status === "pending"
+                            : displayStatus === "pending"
                               ? "border-purple-200 bg-purple-50 text-purple-700"
-                              : status === "class"
+                              : displayStatus === "class"
                                 ? "border-blue-200 bg-blue-50 text-blue-700"
                                : "border-green-200 bg-green-50 text-green-700"
                         }`}
                       >
-                        {status === "approved" && "RESERVED"}
-                        {status === "pending" && "PENDING"}
-                        {status === "class" && "CLASS"}
-                        {status === "available" && "AVAILABLE"}
+                        {displayStatus === "maintenance" && "MAINTENANCE"}
+                        {displayStatus === "approved" && "RESERVED"}
+                        {displayStatus === "pending" && "PENDING"}
+                        {displayStatus === "class" && "CLASS"}
+                        {displayStatus === "available" && "AVAILABLE"}
                       </div>
                     );
                   })}
@@ -614,7 +666,7 @@ export default function EquipmentBookingPage() {
                   const suggestedDuration =
                     (toMinutes(suggestedEnd) - toMinutes(suggestedStart)) / 60;
 
-                  const slotAvailable = !bookings.some((booking) => {
+                  const hasBookingConflict = bookings.some((booking) => {
                     const bookingStart = toMinutes(normalizeTime(booking.start_time));
                     const bookingEnd = toMinutes(normalizeTime(booking.end_time));
                     return (
@@ -623,19 +675,23 @@ export default function EquipmentBookingPage() {
                       toMinutes(suggestedEnd) > bookingStart
                     );
                   });
+                  const slotAvailable =
+                    !hasBookingConflict && !isEquipmentUnderMaintenance;
 
                   return (
                     <button
                       type="button"
                       key={`${suggestedStart}-${suggestedEnd}`}
+                      disabled={!slotAvailable}
                       onClick={() => {
+                        if (!slotAvailable) return;
                         setStartTime(suggestedStart);
                         setEndTime(suggestedEnd);
                       }}
-                      className={`rounded-xl border p-4 text-left transition-colors hover:border-primary ${
+                      className={`rounded-xl border p-4 text-left transition-colors ${
                         slotAvailable
-                          ? "border-border-light bg-background-main"
-                          : "border-warning/20 bg-white"
+                          ? "border-border-light bg-background-main hover:border-primary"
+                          : "cursor-not-allowed border-warning/20 bg-white opacity-70"
                       }`}
                     >
                       <p className="text-lg font-semibold text-text-main">
@@ -649,7 +705,11 @@ export default function EquipmentBookingPage() {
                           slotAvailable ? "text-primary" : "text-warning"
                         }`}
                       >
-                        {slotAvailable ? "QUICK SELECT" : "NOT AVAILABLE"}
+                        {slotAvailable
+                          ? "QUICK SELECT"
+                          : isEquipmentUnderMaintenance
+                            ? "MAINTENANCE"
+                            : "NOT AVAILABLE"}
                       </p>
                     </button>
                   );
@@ -667,6 +727,8 @@ export default function EquipmentBookingPage() {
               >
                 {validationStatus === "available"
                   ? "Slot is available"
+                  : validationStatus === "maintenance"
+                    ? "This equipment is under maintenance"
                   : validationStatus === "class"
                     ? "Slot blocked by class timetable"
                     : validationStatus === "invalid"
@@ -692,40 +754,58 @@ export default function EquipmentBookingPage() {
             />
           </div>
 
-          <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
-            <p className="mb-2 text-xs font-semibold tracking-wide text-text-muted">
-              04 PIC TOKEN
-            </p>
-            <p className="mb-3 text-sm text-text-muted">
-              Ask the responsible PIC for a 6-character token. Tokens are tied
-              to your account and can be reused until they expire.
-            </p>
-            <Input
-              placeholder="Enter your 6-character token"
-              value={token}
-              maxLength={6}
-              onChange={(event) => setToken(event.target.value.toUpperCase())}
-            />
-
-            {errorMessage ? (
-              <p className="mt-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
-                {errorMessage}
+          {!isPicRequester ? (
+            <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
+              <p className="mb-2 text-xs font-semibold tracking-wide text-text-muted">
+                04 PIC TOKEN
               </p>
-            ) : null}
-
-            {successMessage ? (
-              <p className="mt-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-                {successMessage}
+              <p className="mb-3 text-sm text-text-muted">
+                Ask the responsible PIC for a 6-character token. Tokens are tied
+                to your account and can be reused until they expire.
               </p>
-            ) : null}
-          </div>
+              <Input
+                placeholder="Enter your 6-character token"
+                value={token}
+                maxLength={6}
+                onChange={(event) => setToken(event.target.value.toUpperCase())}
+              />
+
+              {errorMessage ? (
+                <p className="mt-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+                  {errorMessage}
+                </p>
+              ) : null}
+
+              {successMessage ? (
+                <p className="mt-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+                  {successMessage}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <>
+              {errorMessage ? (
+                <p className="rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+                  {errorMessage}
+                </p>
+              ) : null}
+
+              {successMessage ? (
+                <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+                  {successMessage}
+                </p>
+              ) : null}
+            </>
+          )}
 
           <div className="flex flex-col gap-4 rounded-xl border border-border-light bg-white p-5 md:flex-row md:items-center md:justify-between md:p-6">
             <div>
               <p className="text-xs font-semibold tracking-wide text-text-muted">
                 05 EST. TOTAL
               </p>
-              <p className="text-2xl font-semibold text-primary">${total}.00</p>
+              <p className="text-2xl font-semibold text-primary">
+                {formatRmFromUsd(total)}
+              </p>
             </div>
 
             <Button
@@ -735,9 +815,13 @@ export default function EquipmentBookingPage() {
             >
                 {isSubmitting
                   ? "Submitting..."
+                  : successMessage
+                    ? "Booking Successful"
                   : validationStatus === "available"
                     ? "Book Now"
-                    : "Cannot Book - Conflict"}
+                    : validationStatus === "maintenance"
+                      ? "Under Maintenance"
+                      : "Cannot Book - Conflict"}
             </Button>
           </div>
         </div>

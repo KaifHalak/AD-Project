@@ -28,6 +28,7 @@ export async function POST(request) {
     const startTime = body?.startTime;
     const endTime = body?.endTime;
     const picCode = body?.picCode?.trim()?.toUpperCase();
+    const bookingReason = (body?.bookingReason || body?.usage || "").trim();
 
     if (!equipmentId || !bookingDate || !startTime || !endTime) {
       return NextResponse.json(
@@ -106,6 +107,26 @@ export async function POST(request) {
     }
 
     const admin = getSupabaseAdminClient();
+    const { data: equipment, error: equipmentError } = await admin
+      .from("equipment")
+      .select("id, status")
+      .eq("id", equipmentId)
+      .maybeSingle();
+
+    if (equipmentError || !equipment) {
+      return NextResponse.json(
+        { error: "Equipment not found." },
+        { status: 404 },
+      );
+    }
+
+    if (equipment.status === "maintenance") {
+      return NextResponse.json(
+        { error: "This equipment is under maintenance and cannot be booked." },
+        { status: 409 },
+      );
+    }
+
     const { data: conflict, error: conflictError } = await admin
       .from("equipment_bookings")
       .select("id")
@@ -141,6 +162,7 @@ export async function POST(request) {
         end_time: endTime,
         status: "pending",
         user_id: requester.id,
+        booking_reason: bookingReason,
       })
       .select("*")
       .maybeSingle();

@@ -167,6 +167,18 @@ export async function GET(request, { params }) {
       );
     }
 
+    const sourceTable =
+      parsed.type === "lab" ? "lab_bookings" : "equipment_bookings";
+    const { data: sourceBooking, error: sourceBookingError } = await admin
+      .from(sourceTable)
+      .select("booking_reason")
+      .eq("id", parsed.id)
+      .maybeSingle();
+
+    if (sourceBookingError) {
+      console.error("Error fetching booking reason:", sourceBookingError);
+    }
+
     return NextResponse.json(
       {
         request: {
@@ -181,15 +193,22 @@ export async function GET(request, { params }) {
           user_name: requester?.username || "Unknown",
           user_email: requester?.email || "Unknown",
           user_role: requester?.role || "Unknown",
+          usage: sourceBooking?.booking_reason || "",
           unit_leader_name: unitLeader?.username || "N/A",
           unit_leader_email: unitLeader?.email || "N/A",
           unit_leader_role: unitLeader?.role || "N/A",
           unit_leader_decision: "approved",
           unit_leader_date: unitLeaderProcess.decision_at,
           unit_leader_remarks: unitLeaderProcess.remarks || "",
+          unit_leader_rejection_reason:
+            unitLeaderProcess.rejection_reason ||
+            unitLeaderProcess.remarks ||
+            "",
           ppmu_decision: ppmuProcess?.decision || "pending",
           ppmu_date: ppmuProcess?.decision_at || null,
           ppmu_remarks: ppmuProcess?.remarks || "",
+          ppmu_rejection_reason:
+            ppmuProcess?.rejection_reason || ppmuProcess?.remarks || "",
           can_review: !ppmuProcess,
         },
       },
@@ -227,6 +246,7 @@ export async function POST(request, { params }) {
     const defaultRemarks =
       decision === "approved" ? "Approved by PPMU" : "Rejected by PPMU";
     const remarks = (body?.remarks || "").trim() || defaultRemarks;
+    const rejectionReason = decision === "rejected" ? remarks : null;
 
     if (!ALLOWED_DECISIONS.has(decision)) {
       return NextResponse.json(
@@ -280,6 +300,7 @@ export async function POST(request, { params }) {
         reviewer_id: requester.id,
         reviewer_role: "ppmu",
         decision,
+        rejection_reason: rejectionReason,
         remarks,
       })
       .select("*")

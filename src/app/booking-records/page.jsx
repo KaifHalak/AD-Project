@@ -43,21 +43,6 @@ function getStatusStyles(status) {
   }
 }
 
-function getStatusLabel(status) {
-  switch (status) {
-    case "approved":
-      return "Approved";
-    case "pending":
-      return "Pending Approval";
-    case "cancelled":
-      return "Cancelled";
-    case "rejected":
-      return "Rejected";
-    default:
-      return status || "-";
-  }
-}
-
 export default function BookingRecordsPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
@@ -183,12 +168,19 @@ export default function BookingRecordsPage() {
       setBookings((currentBookings) =>
         currentBookings.map((booking) =>
           booking.id === bookingToCancel.id
-            ? { ...booking, status: "cancelled" }
+            ? {
+                ...booking,
+                status: "cancelled",
+                source_status: "cancelled",
+                display_status: "Cancelled",
+                display_status_type: "cancelled",
+                is_final_approved: false,
+              }
             : booking,
         ).filter(
           (booking) =>
             selectedStatusFilter === "all" ||
-            booking.status === selectedStatusFilter,
+            booking.display_status_type === selectedStatusFilter,
         ),
       );
       setBookingToCancel(null);
@@ -258,9 +250,9 @@ export default function BookingRecordsPage() {
           <div className="rounded-xl border border-border-light bg-white p-4 text-sm text-text-muted md:p-5">
             <p className="font-semibold text-primary">Status guide</p>
             <div className="mt-2 grid gap-2 md:grid-cols-4">
-              <p><span className="font-semibold text-text-main">Pending:</span> waiting for review.</p>
-              <p><span className="font-semibold text-text-main">Approved:</span> your booking is confirmed.</p>
-              <p><span className="font-semibold text-text-main">Rejected:</span> submit another request.</p>
+              <p><span className="font-semibold text-text-main">Unit Leader:</span> first approval stage.</p>
+              <p><span className="font-semibold text-text-main">PPMU:</span> final approval stage.</p>
+              <p><span className="font-semibold text-text-main">Approved:</span> both stages approved.</p>
               <p><span className="font-semibold text-text-main">Cancelled:</span> no longer active.</p>
             </div>
           </div>
@@ -284,9 +276,9 @@ export default function BookingRecordsPage() {
                         {getTypeLabel(booking.booking_type)}
                       </span>
                       <span
-                        className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${getStatusStyles(booking.status)}`}
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${getStatusStyles(booking.display_status_type)}`}
                       >
-                        {getStatusLabel(booking.status)}
+                        {booking.display_status || "-"}
                       </span>
                     </div>
 
@@ -312,10 +304,16 @@ export default function BookingRecordsPage() {
                         {formatTime(booking.start_time)} - {formatTime(booking.end_time)}
                       </p>
                     </div>
+
+                    {booking.rejection_reason ? (
+                      <p className="rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+                        Reason: {booking.rejection_reason}
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
-                    {booking.status === "approved" ? (
+                    {booking.is_final_approved ? (
                       <Link
                         href={
                           booking.booking_type === "lab"
@@ -328,7 +326,9 @@ export default function BookingRecordsPage() {
                       </Link>
                     ) : null}
 
-                    {activeCancellableStatuses.includes(booking.status) ? (
+                    {activeCancellableStatuses.includes(
+                      booking.source_status || booking.status,
+                    ) && booking.display_status_type !== "rejected" ? (
                       <Button
                         type="button"
                         variant="secondary"

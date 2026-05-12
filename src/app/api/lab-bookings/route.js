@@ -28,6 +28,7 @@ export async function POST(request) {
     const startTime = body?.startTime;
     const endTime = body?.endTime;
     const picCode = body?.picCode?.trim()?.toUpperCase();
+    const bookingReason = (body?.bookingReason || body?.usage || "").trim();
 
     if (!labId || !bookingDate || !startTime || !endTime) {
       return NextResponse.json(
@@ -92,12 +93,19 @@ export async function POST(request) {
     const admin = getSupabaseAdminClient();
     const { data: lab, error: labError } = await admin
       .from("labs")
-      .select("id")
+      .select("id, status")
       .eq("id", labId)
       .maybeSingle();
 
     if (labError || !lab) {
       return NextResponse.json({ error: "Lab not found." }, { status: 404 });
+    }
+
+    if (lab.status === "maintenance") {
+      return NextResponse.json(
+        { error: "This lab is under maintenance and cannot be booked." },
+        { status: 409 },
+      );
     }
 
     const timetableConflict = findLabTimetableConflict({
@@ -151,6 +159,7 @@ export async function POST(request) {
         end_time: endTime,
         status: "pending",
         user_id: requester.id,
+        booking_reason: bookingReason,
       })
       .select("*")
       .maybeSingle();
