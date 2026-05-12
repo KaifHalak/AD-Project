@@ -12,27 +12,33 @@ function getBookingViewId(type, id) {
   return `${type}-${id}`;
 }
 
-async function requirePpmuRequester(request) {
+async function requireUnitLeaderRequester(request) {
   const accessToken = getAccessTokenFromHeader(request);
 
   if (!accessToken) {
     return {
-      error: { status: 401, message: "Please log in before viewing PPMU." },
+      error: {
+        status: 401,
+        message: "Please log in before viewing unit leader approvals.",
+      },
     };
   }
 
   const { requester, error } = await getRequesterProfile(
     accessToken,
-    "Please log in before viewing PPMU.",
+    "Please log in before viewing unit leader approvals.",
   );
 
   if (error) {
     return { error };
   }
 
-  if (requester.role !== "ppmu") {
+  if (requester.role !== "unit_leader") {
     return {
-      error: { status: 403, message: "Only PPMU users can access this page." },
+      error: {
+        status: 403,
+        message: "Only unit leaders can access this page.",
+      },
     };
   }
 
@@ -49,29 +55,13 @@ function parseRouteParams(type, id) {
   return { type, id: numericId };
 }
 
-async function getApprovedUnitLeaderProcess(admin, type, id) {
+async function getLatestUnitLeaderProcess(admin, type, id) {
   const { data, error } = await admin
     .from("booking_process")
     .select("*")
     .eq("booking_type", type)
     .eq("booking_id", id)
     .eq("reviewer_role", "unit_leader")
-    .eq("decision", "approved")
-    .order("decision_at", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  return { data, error };
-}
-
-async function getLatestPpmuProcess(admin, type, id) {
-  const { data, error } = await admin
-    .from("booking_process")
-    .select("*")
-    .eq("booking_type", type)
-    .eq("booking_id", id)
-    .eq("reviewer_role", "ppmu")
     .order("decision_at", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(1)
@@ -83,7 +73,7 @@ async function getLatestPpmuProcess(admin, type, id) {
 function toDisplayStatus(decision) {
   if (decision === "approved") return "Approved";
   if (decision === "rejected") return "Rejected";
-  return "Pending Final Review";
+  return "Pending";
 }
 
 export async function GET(request, { params }) {
@@ -92,10 +82,13 @@ export async function GET(request, { params }) {
     const parsed = parseRouteParams(type, id);
 
     if (!parsed) {
-      return NextResponse.json({ error: "Invalid PPMU request." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid unit leader request." },
+        { status: 400 },
+      );
     }
 
-    const { error: authError } = await requirePpmuRequester(request);
+    const { error: authError } = await requireUnitLeaderRequester(request);
 
     if (authError) {
       return NextResponse.json(
@@ -105,23 +98,6 @@ export async function GET(request, { params }) {
     }
 
     const admin = getSupabaseAdminClient();
-    const { data: unitLeaderProcess, error: processError } =
-      await getApprovedUnitLeaderProcess(admin, parsed.type, parsed.id);
-
-    if (processError) {
-      console.error("Error fetching unit leader process:", processError);
-      return NextResponse.json(
-        { error: "Could not fetch unit leader approval." },
-        { status: 500 },
-      );
-    }
-
-    if (!unitLeaderProcess) {
-      return NextResponse.json(
-        { error: "This request has not been approved by a unit leader." },
-        { status: 404 },
-      );
-    }
 
     const { data: booking, error: bookingError } = await admin
       .from("bookings")
@@ -132,12 +108,23 @@ export async function GET(request, { params }) {
       .maybeSingle();
 
     if (bookingError || !booking) {
-      console.error("Error fetching PPMU booking detail:", bookingError);
+      console.error("Error fetching unit leader booking detail:", bookingError);
       return NextResponse.json({ error: "Booking not found." }, { status: 404 });
     }
 
+    const { data: processData, error: processError } =
+      await getLatestUnitLeaderProcess(admin, parsed.type, parsed.id);
+
+    if (processError) {
+      console.error("Error fetching unit leader process:", processError);
+      return NextResponse.json(
+        { error: "Could not fetch unit leader review." },
+        { status: 500 },
+      );
+    }
+
     const userIds = [
-      ...new Set([booking.user_id, unitLeaderProcess.reviewer_id].filter(Boolean)),
+      ...new Set([booking.user_id, processData?.reviewer_id].filter(Boolean)),
     ];
 
     const { data: users, error: usersError } = await admin
@@ -146,7 +133,7 @@ export async function GET(request, { params }) {
       .in("id", userIds);
 
     if (usersError) {
-      console.error("Error fetching PPMU detail users:", usersError);
+      console.error("Error fetching unit leader detail users:", usersError);
       return NextResponse.json(
         { error: "Could not fetch user details." },
         { status: 500 },
@@ -155,17 +142,8 @@ export async function GET(request, { params }) {
 
     const usersById = new Map((users || []).map((user) => [user.id, user]));
     const requester = usersById.get(booking.user_id);
-    const unitLeader = usersById.get(unitLeaderProcess.reviewer_id);
-    const { data: ppmuProcess, error: ppmuProcessError } =
-      await getLatestPpmuProcess(admin, parsed.type, parsed.id);
-
-    if (ppmuProcessError) {
-      console.error("Error fetching PPMU process:", ppmuProcessError);
-      return NextResponse.json(
-        { error: "Could not fetch PPMU review." },
-        { status: 500 },
-      );
-    }
+    const unitLeader = usersById.get(processData?.reviewer_id);
+    const displayStatus = toDisplayStatus(processData?.decision);
 
     return NextResponse.json(
       {
@@ -175,8 +153,8 @@ export async function GET(request, { params }) {
           booking_date: booking.booking_date,
           start_time: booking.start_time,
           end_time: booking.end_time,
-          status: toDisplayStatus(ppmuProcess?.decision),
-          status_type: ppmuProcess?.decision || "pending",
+          status: displayStatus,
+          status_type: processData?.decision || "pending",
           resource_name: booking.item_name || booking.item_id || "Unknown",
           user_name: requester?.username || "Unknown",
           user_email: requester?.email || "Unknown",
@@ -184,21 +162,18 @@ export async function GET(request, { params }) {
           unit_leader_name: unitLeader?.username || "N/A",
           unit_leader_email: unitLeader?.email || "N/A",
           unit_leader_role: unitLeader?.role || "N/A",
-          unit_leader_decision: "approved",
-          unit_leader_date: unitLeaderProcess.decision_at,
-          unit_leader_remarks: unitLeaderProcess.remarks || "",
-          ppmu_decision: ppmuProcess?.decision || "pending",
-          ppmu_date: ppmuProcess?.decision_at || null,
-          ppmu_remarks: ppmuProcess?.remarks || "",
-          can_review: !ppmuProcess,
+          unit_leader_decision: processData?.decision || "pending",
+          unit_leader_date: processData?.decision_at || null,
+          unit_leader_remarks: processData?.remarks || "",
+          can_review: !processData,
         },
       },
       { status: 200 },
     );
   } catch (error) {
-    console.error("Error in GET /api/ppmu/[type]/[id]:", error);
+    console.error("Error in GET /api/unit-leader/[type]/[id]:", error);
     return NextResponse.json(
-      { error: "Something went wrong while loading this PPMU request." },
+      { error: "Something went wrong while loading this unit leader request." },
       { status: 500 },
     );
   }
@@ -210,10 +185,13 @@ export async function POST(request, { params }) {
     const parsed = parseRouteParams(type, id);
 
     if (!parsed) {
-      return NextResponse.json({ error: "Invalid PPMU request." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid unit leader request." },
+        { status: 400 },
+      );
     }
 
-    const { requester, error: authError } = await requirePpmuRequester(request);
+    const { requester, error: authError } = await requireUnitLeaderRequester(request);
 
     if (authError) {
       return NextResponse.json(
@@ -225,7 +203,9 @@ export async function POST(request, { params }) {
     const body = await request.json();
     const decision = (body?.decision || "").trim().toLowerCase();
     const defaultRemarks =
-      decision === "approved" ? "Approved by PPMU" : "Rejected by PPMU";
+      decision === "approved"
+        ? "Approved by Unit Leader"
+        : "Rejected by Unit Leader";
     const remarks = (body?.remarks || "").trim() || defaultRemarks;
 
     if (!ALLOWED_DECISIONS.has(decision)) {
@@ -236,38 +216,36 @@ export async function POST(request, { params }) {
     }
 
     const admin = getSupabaseAdminClient();
-    const { data: unitLeaderProcess, error: processError } =
-      await getApprovedUnitLeaderProcess(admin, parsed.type, parsed.id);
+    const { data: booking, error: bookingError } = await admin
+      .from("bookings")
+      .select("id")
+      .eq("id", getBookingViewId(parsed.type, parsed.id))
+      .maybeSingle();
 
-    if (processError) {
-      console.error("Error verifying unit leader approval:", processError);
+    if (bookingError || !booking) {
+      return NextResponse.json({ error: "Booking not found." }, { status: 404 });
+    }
+
+    const { data: existingProcess, error: existingProcessError } =
+      await getLatestUnitLeaderProcess(admin, parsed.type, parsed.id);
+
+    if (existingProcessError) {
+      console.error(
+        "Error checking existing unit leader decision:",
+        existingProcessError,
+      );
       return NextResponse.json(
-        { error: "Could not verify unit leader approval." },
+        { error: "Could not verify existing unit leader decision." },
         { status: 500 },
       );
     }
 
-    if (!unitLeaderProcess) {
+    if (existingProcess) {
       return NextResponse.json(
-        { error: "Only unit leader approved requests can be reviewed by PPMU." },
-        { status: 400 },
-      );
-    }
-
-    const { data: existingPpmuProcess, error: existingPpmuError } =
-      await getLatestPpmuProcess(admin, parsed.type, parsed.id);
-
-    if (existingPpmuError) {
-      console.error("Error checking existing PPMU decision:", existingPpmuError);
-      return NextResponse.json(
-        { error: "Could not verify existing PPMU decision." },
-        { status: 500 },
-      );
-    }
-
-    if (existingPpmuProcess) {
-      return NextResponse.json(
-        { error: "PPMU decision has already been made and cannot be changed." },
+        {
+          error:
+            "Unit leader decision has already been made and cannot be changed.",
+        },
         { status: 409 },
       );
     }
@@ -278,7 +256,7 @@ export async function POST(request, { params }) {
         booking_type: parsed.type,
         booking_id: parsed.id,
         reviewer_id: requester.id,
-        reviewer_role: "ppmu",
+        reviewer_role: "unit_leader",
         decision,
         remarks,
       })
@@ -286,9 +264,9 @@ export async function POST(request, { params }) {
       .maybeSingle();
 
     if (insertError) {
-      console.error("Error inserting PPMU process record:", insertError);
+      console.error("Error inserting unit leader process record:", insertError);
       return NextResponse.json(
-        { error: "Could not save the PPMU decision." },
+        { error: "Could not save the unit leader decision." },
         { status: 500 },
       );
     }
@@ -302,9 +280,9 @@ export async function POST(request, { params }) {
       { status: 201 },
     );
   } catch (error) {
-    console.error("Error in POST /api/ppmu/[type]/[id]:", error);
+    console.error("Error in POST /api/unit-leader/[type]/[id]:", error);
     return NextResponse.json(
-      { error: "Something went wrong while saving the PPMU decision." },
+      { error: "Something went wrong while saving the unit leader decision." },
       { status: 500 },
     );
   }

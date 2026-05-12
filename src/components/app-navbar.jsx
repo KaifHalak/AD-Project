@@ -3,14 +3,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getCurrentSession } from "@/lib/supabase/auth";
+import { getCurrentSession, getCurrentUser } from "@/lib/supabase/auth";
+import { getRecordByColumn } from "@/lib/supabase/db";
 import { fetchVerificationStatus } from "@/lib/verificationClient";
 
 export default function AppNavbar() {
   const pathname = usePathname();
   const [hasActiveVerification, setHasActiveVerification] = useState(false);
+  const [role, setRole] = useState("");
 
   const accountActive = pathname.startsWith("/account");
+  const ppmuActive = pathname.startsWith("/PPMU");
+  const unitLeaderActive = pathname.startsWith("/unit-leader");
   const labBooking = pathname.startsWith("/lab-booking");
   const equipmentBooking = pathname.startsWith("/equipment-booking");
   const bookingRecordsActive = pathname.startsWith("/booking-records");
@@ -34,11 +38,15 @@ export default function AppNavbar() {
 
         if (!sessionData?.session) {
           setHasActiveVerification(false);
+          setRole("");
           return;
         }
 
         const accessToken = sessionData.session.access_token;
-        const verificationResponse = await fetchVerificationStatus(accessToken);
+        const [verificationResponse, authResult] = await Promise.all([
+          fetchVerificationStatus(accessToken),
+          getCurrentUser(),
+        ]);
 
         if (!isMounted) {
           return;
@@ -52,12 +60,36 @@ export default function AppNavbar() {
         setHasActiveVerification(
           Boolean(
             verificationResponse.data?.verified ||
-            verificationResponse.data?.bypassVerification,
+              verificationResponse.data?.bypassVerification,
           ),
         );
+
+        if (authResult.error || !authResult.data?.user?.email) {
+          setRole("");
+          return;
+        }
+
+        const { data: profile, error: profileError } = await getRecordByColumn(
+          "users",
+          "email",
+          authResult.data.user.email,
+          "role",
+        );
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (profileError || !profile) {
+          setRole("");
+          return;
+        }
+
+        setRole(profile.role || "");
       } catch {
         if (isMounted) {
           setHasActiveVerification(false);
+          setRole("");
         }
       }
     }
@@ -92,6 +124,32 @@ export default function AppNavbar() {
           >
             Account
           </Link>
+
+          {role === "ppmu" ? (
+            <Link
+              href="/PPMU"
+              className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+                ppmuActive
+                  ? "border-primary bg-primary text-white"
+                  : "border-border-light bg-white text-text-main hover:bg-background-main"
+              }`}
+            >
+              PPMU
+            </Link>
+          ) : null}
+
+          {role === "unit_leader" ? (
+            <Link
+              href="/unit-leader"
+              className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+                unitLeaderActive
+                  ? "border-primary bg-primary text-white"
+                  : "border-border-light bg-white text-text-main hover:bg-background-main"
+              }`}
+            >
+              Unit Leader
+            </Link>
+          ) : null}
 
           <Link
             href="/lab-booking"

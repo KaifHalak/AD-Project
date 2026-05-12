@@ -31,7 +31,7 @@ function formatDateTime(dateTimeValue) {
   });
 }
 
-export default function RequestDetailPage() {
+export default function UnitLeaderRequestDetailPage() {
   const { type, id } = useParams();
   const router = useRouter();
   const [data, setData] = useState(null);
@@ -40,7 +40,7 @@ export default function RequestDetailPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
   const [popupMessage, setPopupMessage] = useState("");
-  const [ppmuRemarks, setPpmuRemarks] = useState("");
+  const [remarks, setRemarks] = useState("");
 
   const getAccessToken = useCallback(async () => {
     const { data: sessionData } = await getCurrentSession();
@@ -59,7 +59,7 @@ export default function RequestDetailPage() {
         return;
       }
 
-      const response = await fetch(`/api/ppmu/${type}/${id}`, {
+      const response = await fetch(`/api/unit-leader/${type}/${id}`, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -109,13 +109,13 @@ export default function RequestDetailPage() {
         return;
       }
 
-      const response = await fetch(`/api/ppmu/${type}/${id}`, {
+      const response = await fetch(`/api/unit-leader/${type}/${id}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ decision, remarks: ppmuRemarks }),
+        body: JSON.stringify({ decision, remarks }),
       });
 
       const responseData = await response.json();
@@ -134,7 +134,7 @@ export default function RequestDetailPage() {
       setShowSuccess(true);
 
       setTimeout(() => {
-        router.push("/PPMU");
+        router.push("/unit-leader");
       }, 1500);
     } catch (error) {
       console.error(error);
@@ -168,7 +168,6 @@ export default function RequestDetailPage() {
 
   return (
     <div className="bg-[#f4efe9] min-h-screen p-8">
-      {/* SUCCESS POPUP */}
       {showSuccess && (
         <div className="fixed top-6 right-6 z-50">
           <div className="bg-green-500 text-white px-6 py-4 rounded-2xl shadow-xl">
@@ -178,7 +177,6 @@ export default function RequestDetailPage() {
       )}
 
       <div className="w-3/4 max-w-7xl mx-auto">
-        {/* BACK + TITLE */}
         <div className="flex items-center gap-4 mb-6">
           <button
             onClick={() => router.back()}
@@ -197,64 +195,46 @@ export default function RequestDetailPage() {
         ) : null}
 
         <div className="space-y-6">
-          {/* REQUEST OVERVIEW */}
           <Section title="Request Overview">
             <Grid>
               <Field label="Request ID" value={data.id} />
-
               <Field label="Request Type" value={data.type} />
-
               <Field label="Current Status">
                 <Badge
                   text={data.status}
-                  type={data.status_type || "approved"}
+                  type={data.status_type || "pending"}
                 />
               </Field>
-
               <Field label="Booking Date" value={data.booking_date} />
             </Grid>
           </Section>
 
-          {/* USER INFORMATION */}
           <Section title="User Information">
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
               <Field label="User Name" value={data.user_name} />
-
               <Field label="User Email" value={data.user_email} />
-
               <Field label="User Role" value={data.user_role} />
-
-              <Field label="Unit Leader Name" value={data.unit_leader_name} />
-
-              <Field label="Unit Leader Email" value={data.unit_leader_email} />
-
-              <Field label="Unit Leader Role" value={data.unit_leader_role} />
             </div>
           </Section>
 
-          {/* BOOKING INFO */}
           <Section title="Booking Information">
             <div className="space-y-10">
-              {/* RESOURCE NAME */}
               <Field
                 label={type === "lab" ? "Lab Name" : "Equipment Name"}
                 value={data.resource_name}
               />
 
-              {/* START / END */}
               <div className="grid grid-cols-2 gap-10">
                 <Field
                   label="Start Date & Time"
                   value={`${data.booking_date} ${formatTime(data.start_time)}`}
                 />
-
                 <Field
                   label="End Date & Time"
                   value={`${data.booking_date} ${formatTime(data.end_time)}`}
                 />
               </div>
 
-              {/* REASON */}
               <Field
                 label="Reason for Booking"
                 value={data.usage || "No reason provided."}
@@ -263,95 +243,36 @@ export default function RequestDetailPage() {
             </div>
           </Section>
 
-          {/* UNIT LEADER */}
-          <Section title="Unit Leader Review">
-            <div className="grid grid-cols-3 gap-10">
-              {/* DECISION */}
-              <Field label="Unit Leader Decision">
-                <Badge
-                  text="Approved by Unit Leader"
-                  type={
-                    data.unit_leader_decision === "approved"
-                      ? "approved"
-                      : data.unit_leader_decision === "rejected"
-                        ? "rejected"
-                        : "pending"
-                  }
-                />
-              </Field>
-
-              {/* NAME */}
-              <Field
-                label="Unit Leader Name"
-                value={data.unit_leader_name || "N/A"}
-              />
-
-              {/* DATE */}
-              <Field
-                label="Decision Date"
-                value={formatDateTime(data.unit_leader_date)}
-              />
-            </div>
-
-            <div className="mt-6">
-              <Field
-                label="Remarks"
-                value={data.unit_leader_remarks || "No remarks provided."}
-              />
-            </div>
-          </Section>
-
-          {/* DECISION PANEL */}
-          <Section title="PPMU Decision Panel">
-            <p className="text-sm text-gray-500 mb-4">MAKE FINAL DECISION</p>
+          <Section title="Unit Leader Decision Panel">
+            <p className="text-sm text-gray-500 mb-4">MAKE DECISION</p>
 
             {!data.can_review ? (
               <p className="mb-5 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-                PPMU decision has already been submitted and cannot be changed.
+                Unit leader decision has already been submitted and cannot be
+                changed.
               </p>
-            ) : null}
-
-            {!data.can_review ? (
-              <div className="grid grid-cols-2 gap-6 mb-5">
-                <Field label="PPMU Decision">
-                  <Badge
-                    text={
-                      data.ppmu_decision === "approved"
-                        ? "Approved"
-                        : data.ppmu_decision === "rejected"
-                          ? "Rejected"
-                          : "Pending Final Review"
-                    }
-                    type={data.ppmu_decision || "pending"}
-                  />
-                </Field>
-                <Field
-                  label="Decision Date"
-                  value={formatDateTime(data.ppmu_date)}
-                />
-              </div>
             ) : null}
 
             <div className="mb-5">
               <label
-                htmlFor="ppmuRemarks"
+                htmlFor="unitLeaderRemarks"
                 className="block text-xs text-gray-500 mb-1"
               >
-                PPMU REMARKS
+                UNIT LEADER REMARKS
               </label>
               <textarea
-                id="ppmuRemarks"
-                value={ppmuRemarks}
-                onChange={(event) => setPpmuRemarks(event.target.value)}
-                placeholder="Add final review remarks..."
+                id="unitLeaderRemarks"
+                value={remarks}
+                onChange={(event) => setRemarks(event.target.value)}
+                placeholder="Add review remarks..."
                 disabled={!data.can_review}
                 rows={4}
                 className="w-full resize-none rounded-xl border border-[#ddd6cc] bg-[#f3efe9] p-3 text-text-main outline-none placeholder:text-gray-400 disabled:cursor-not-allowed disabled:opacity-70"
               />
               <p className="mt-2 text-xs text-gray-500">
                 {data.can_review
-                  ? "Leave this blank to use the default PPMU decision remark."
-                  : data.ppmu_remarks || "No remarks provided."}
+                  ? "Leave this blank to use the default unit leader decision remark."
+                  : data.unit_leader_remarks || "No remarks provided."}
               </p>
             </div>
 
@@ -379,13 +300,10 @@ export default function RequestDetailPage() {
   );
 }
 
-/* ---------- UI COMPONENTS ---------- */
-
 function Section({ title, children }) {
   return (
     <div className="border border-border-light bg-[#fafafa] p-6 rounded-2xl shadow-sm">
       <h2 className="text-xl font-semibold mb-4">{title}</h2>
-
       {children}
     </div>
   );
@@ -399,7 +317,6 @@ function Field({ label, value, children, full }) {
   return (
     <div className={`${full ? "col-span-2" : ""} min-w-0`}>
       <p className="text-xs text-gray-500 mb-1">{label?.toUpperCase()}</p>
-
       <div className="text-lg font-medium break-words">
         {children ? children : value}
       </div>
