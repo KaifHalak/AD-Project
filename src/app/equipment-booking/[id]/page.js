@@ -27,6 +27,10 @@ import {
   findEquipmentTimetableConflict,
   getEquipmentTimetableEvents,
 } from "@/lib/mockTimetable";
+import {
+  MOCK_VOT_ACCOUNTS,
+  validateMockVotFunding,
+} from "@/lib/mockVotFunding";
 
 export default function EquipmentBookingPage() {
   const { id } = useParams();
@@ -43,6 +47,8 @@ export default function EquipmentBookingPage() {
   const [endTime, setEndTime] = useState("11:00");
 
   const [usage, setUsage] = useState("");
+  const [projectGrantVotNo, setProjectGrantVotNo] = useState("");
+  const [expenseVot, setExpenseVot] = useState("");
   const [token, setToken] = useState("");
   const [requesterRole, setRequesterRole] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -72,6 +78,13 @@ export default function EquipmentBookingPage() {
 
   const changeDate = (offset) => {
     setCurrentDate((current) => getAdjacentAllowedBookingDate(current, offset));
+  };
+
+  const applySampleVot = (account) => {
+    setProjectGrantVotNo(account.projectGrantVotNo);
+    setExpenseVot(account.expenseVot);
+    setErrorMessage("");
+    setSuccessMessage("");
   };
 
   useEffect(() => {
@@ -292,15 +305,27 @@ export default function EquipmentBookingPage() {
           ? "available"
           : "conflict";
   const isPicRequester = requesterRole === "pic";
+  const votValidation = validateMockVotFunding({
+    projectGrantVotNo,
+    expenseVot,
+  });
+  const hasVotInput = Boolean(projectGrantVotNo.trim() || expenseVot.trim());
+  const paymentError =
+    hasVotInput && !votValidation.ok ? votValidation.error : "";
   const hasCompleteBookingFields = Boolean(
     selectedDateString &&
       startTime &&
       endTime &&
       usage.trim() &&
+      projectGrantVotNo.trim() &&
+      expenseVot.trim() &&
       (isPicRequester || token.trim()),
   );
   const canSubmit =
-    validationStatus === "available" && hasCompleteBookingFields && !isSubmitting;
+    validationStatus === "available" &&
+    hasCompleteBookingFields &&
+    votValidation.ok &&
+    !isSubmitting;
 
   //handle booking
   const handleSubmitBooking = async (e) => {
@@ -338,6 +363,11 @@ export default function EquipmentBookingPage() {
         return;
       }
 
+      if (!votValidation.ok) {
+        setErrorMessage(votValidation.error);
+        return;
+      }
+
       if (!isPicRequester && !formattedToken) {
         setErrorMessage("Please enter your PIC token.");
         return;
@@ -364,6 +394,8 @@ export default function EquipmentBookingPage() {
           endTime: `${endTime}:00`,
           picCode: isPicRequester ? "" : formattedToken,
           bookingReason: usage.trim(),
+          projectGrantVotNo: projectGrantVotNo.trim().toUpperCase(),
+          expenseVot: expenseVot.trim(),
         }),
       });
 
@@ -390,6 +422,8 @@ export default function EquipmentBookingPage() {
       ]);
       setToken("");
       setUsage("");
+      setProjectGrantVotNo("");
+      setExpenseVot("");
     } catch (err) {
       console.error(err);
       setErrorMessage("Unexpected error while booking equipment.");
@@ -754,10 +788,70 @@ export default function EquipmentBookingPage() {
             />
           </div>
 
+          <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-text-muted">
+              04 Billing
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Project / Grant VOT No.
+                </p>
+                <Input
+                  placeholder="Q.J130000.3851.19J91"
+                  value={projectGrantVotNo}
+                  onChange={(event) =>
+                    setProjectGrantVotNo(event.target.value.toUpperCase())
+                  }
+                />
+              </div>
+
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Expense VOT
+                </p>
+                <Input
+                  placeholder="27000"
+                  value={expenseVot}
+                  onChange={(event) => setExpenseVot(event.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => applySampleVot(MOCK_VOT_ACCOUNTS.sufficient)}
+                className="w-auto text-sm"
+              >
+                Use sample with sufficient funds
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => applySampleVot(MOCK_VOT_ACCOUNTS.insufficient)}
+                className="w-auto text-sm"
+              >
+                Use sample with insufficient funds
+              </Button>
+            </div>
+
+            {paymentError ? (
+              <p className="mt-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+                {paymentError}
+              </p>
+            ) : (
+              <p className="mt-3 text-sm text-text-muted">
+                Payment will be processed once the request has been approved.
+              </p>
+            )}
+          </div>
+
           {!isPicRequester ? (
             <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
               <p className="mb-2 text-xs font-semibold tracking-wide text-text-muted">
-                04 PIC TOKEN
+                05 PIC TOKEN
               </p>
               <p className="mb-3 text-sm text-text-muted">
                 Ask the responsible PIC for a 6-character token. Tokens are tied
@@ -801,7 +895,7 @@ export default function EquipmentBookingPage() {
           <div className="flex flex-col gap-4 rounded-xl border border-border-light bg-white p-5 md:flex-row md:items-center md:justify-between md:p-6">
             <div>
               <p className="text-xs font-semibold tracking-wide text-text-muted">
-                05 EST. TOTAL
+                06 EST. TOTAL
               </p>
               <p className="text-2xl font-semibold text-primary">
                 {formatRmFromUsd(total)}

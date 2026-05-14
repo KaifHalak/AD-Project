@@ -26,6 +26,10 @@ import {
   findLabTimetableConflict,
   getLabTimetableEvents,
 } from "@/lib/mockTimetable";
+import {
+  MOCK_VOT_ACCOUNTS,
+  validateMockVotFunding,
+} from "@/lib/mockVotFunding";
 
 const START_TIMES = START_TIME_OPTIONS;
 
@@ -135,6 +139,8 @@ export default function LabReservationPage() {
   const [startTime, setStartTime] = useState(initialStart);
   const [endTime, setEndTime] = useState(initialEnd);
   const [usage, setUsage] = useState("");
+  const [projectGrantVotNo, setProjectGrantVotNo] = useState("");
+  const [expenseVot, setExpenseVot] = useState("");
   const [token, setToken] = useState("");
   const [requesterRole, setRequesterRole] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -294,6 +300,13 @@ export default function LabReservationPage() {
     );
   }
 
+  function applySampleVot(account) {
+    setProjectGrantVotNo(account.projectGrantVotNo);
+    setExpenseVot(account.expenseVot);
+    setErrorMessage("");
+    setSuccessMessage("");
+  }
+
   const conflict = getSlotBooking(bookings, startTime, endTime);
   const timetableConflict = findLabTimetableConflict({
     labId: id,
@@ -321,15 +334,27 @@ export default function LabReservationPage() {
   const total =
     getDurationHours(startTime, endTime) * (lab?.price_per_hour || 0);
   const isPicRequester = requesterRole === "pic";
+  const votValidation = validateMockVotFunding({
+    projectGrantVotNo,
+    expenseVot,
+  });
+  const hasVotInput = Boolean(projectGrantVotNo.trim() || expenseVot.trim());
+  const paymentError =
+    hasVotInput && !votValidation.ok ? votValidation.error : "";
   const hasCompleteBookingFields = Boolean(
     selectedDate &&
       startTime &&
       endTime &&
       usage.trim() &&
+      projectGrantVotNo.trim() &&
+      expenseVot.trim() &&
       (isPicRequester || token.trim()),
   );
   const canSubmit =
-    validationStatus === "available" && hasCompleteBookingFields && !isSubmitting;
+    validationStatus === "available" &&
+    hasCompleteBookingFields &&
+    votValidation.ok &&
+    !isSubmitting;
 
   async function handleSubmitBooking(event) {
     event.preventDefault();
@@ -363,6 +388,11 @@ export default function LabReservationPage() {
       return;
     }
 
+    if (!votValidation.ok) {
+      setErrorMessage(votValidation.error);
+      return;
+    }
+
     if (!isPicRequester && !formattedToken) {
       setErrorMessage("Please enter your authorization token.");
       return;
@@ -392,6 +422,8 @@ export default function LabReservationPage() {
           endTime: `${endTime}:00`,
           picCode: isPicRequester ? "" : formattedToken,
           bookingReason: usage.trim(),
+          projectGrantVotNo: projectGrantVotNo.trim().toUpperCase(),
+          expenseVot: expenseVot.trim(),
         }),
       });
 
@@ -418,6 +450,8 @@ export default function LabReservationPage() {
       ]);
       setToken("");
       setUsage("");
+      setProjectGrantVotNo("");
+      setExpenseVot("");
     } catch (error) {
       console.error(error);
       setErrorMessage("Unexpected error while booking a lab.");
@@ -843,8 +877,61 @@ export default function LabReservationPage() {
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
               06 Billing
             </p>
-            <div className="rounded-xl border border-border-light bg-white px-4 py-4 text-sm text-text-muted">
-              Payment will be processed once the request has been approved.
+            <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                    Project / Grant VOT No.
+                  </p>
+                  <Input
+                    placeholder="Q.J130000.3851.19J91"
+                    value={projectGrantVotNo}
+                    onChange={(event) =>
+                      setProjectGrantVotNo(event.target.value.toUpperCase())
+                    }
+                  />
+                </div>
+
+                <div>
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                    Expense VOT
+                  </p>
+                  <Input
+                    placeholder="27000"
+                    value={expenseVot}
+                    onChange={(event) => setExpenseVot(event.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => applySampleVot(MOCK_VOT_ACCOUNTS.sufficient)}
+                  className="w-auto text-sm"
+                >
+                  Use sample with sufficient funds
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => applySampleVot(MOCK_VOT_ACCOUNTS.insufficient)}
+                  className="w-auto text-sm"
+                >
+                  Use sample with insufficient funds
+                </Button>
+              </div>
+
+              {paymentError ? (
+                <p className="mt-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+                  {paymentError}
+                </p>
+              ) : (
+                <p className="mt-3 text-sm text-text-muted">
+                  Payment will be processed once the request has been approved.
+                </p>
+              )}
             </div>
           </section>
 

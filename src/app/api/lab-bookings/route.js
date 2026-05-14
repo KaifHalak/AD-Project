@@ -10,6 +10,7 @@ import {
   isOfficeTimeRange,
 } from "@/lib/bookingConstraints";
 import { findLabTimetableConflict } from "@/lib/mockTimetable";
+import { validateMockVotFunding } from "@/lib/mockVotFunding";
 
 export async function POST(request) {
   try {
@@ -29,6 +30,8 @@ export async function POST(request) {
     const endTime = body?.endTime;
     const picCode = body?.picCode?.trim()?.toUpperCase();
     const bookingReason = (body?.bookingReason || body?.usage || "").trim();
+    const projectGrantVotNo = body?.projectGrantVotNo;
+    const expenseVot = body?.expenseVot;
 
     if (!labId || !bookingDate || !startTime || !endTime) {
       return NextResponse.json(
@@ -58,6 +61,18 @@ export async function POST(request) {
       return NextResponse.json(
         { error: "End time must be after start time." },
         { status: 400 },
+      );
+    }
+
+    const votValidation = validateMockVotFunding({
+      projectGrantVotNo,
+      expenseVot,
+    });
+
+    if (!votValidation.ok) {
+      return NextResponse.json(
+        { error: votValidation.error },
+        { status: votValidation.status },
       );
     }
 
