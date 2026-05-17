@@ -108,7 +108,9 @@ export async function GET(request, { params }) {
 
     const { data: booking, error: fetchError } = await admin
       .from("bookings")
-      .select("id, booking_type, item_id, user_id, booking_date, start_time, end_time, status")
+      .select(
+        "id, booking_type, item_id, user_id, booking_date, start_time, end_time, status, grant_number, vot_number, total_price, created_at",
+      )
       .eq("id", id)
       .maybeSingle();
 

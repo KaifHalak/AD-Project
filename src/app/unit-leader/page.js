@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getCurrentSession } from "@/lib/supabase/auth";
+import { formatRmFromUsd } from "@/lib/currency";
 
 function formatTime(timeValue) {
   if (!timeValue) return "-";
@@ -16,6 +17,23 @@ function formatTime(timeValue) {
     minute: "2-digit",
     hour12: true,
   });
+}
+
+function formatDateTime(dateTimeValue) {
+  if (!dateTimeValue) return "-";
+
+  return new Date(dateTimeValue).toLocaleString([], {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function formatPrice(value) {
+  return value === null || value === undefined ? "-" : formatRmFromUsd(value);
 }
 
 export default function UnitLeaderApprovalPage() {
@@ -32,6 +50,10 @@ export default function UnitLeaderApprovalPage() {
   const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [errorMessage, setErrorMessage] = useState("");
+  const [sortConfig, setSortConfig] = useState({
+    key: "created_at",
+    direction: "desc",
+  });
 
   const filteredData = data.filter((item) => {
     const matchesSearch =
@@ -44,6 +66,27 @@ export default function UnitLeaderApprovalPage() {
 
     return matchesSearch && matchesType && matchesStatus;
   });
+
+  const sortedData = [...filteredData].sort((left, right) => {
+    const leftValue = getSortValue(left, sortConfig.key, "unit_leader_status");
+    const rightValue = getSortValue(
+      right,
+      sortConfig.key,
+      "unit_leader_status",
+    );
+
+    if (leftValue < rightValue) return sortConfig.direction === "asc" ? -1 : 1;
+    if (leftValue > rightValue) return sortConfig.direction === "asc" ? 1 : -1;
+    return 0;
+  });
+
+  function handleSort(key) {
+    setSortConfig((current) => ({
+      key,
+      direction:
+        current.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
+  }
 
   useEffect(() => {
     let isMounted = true;
@@ -147,7 +190,11 @@ export default function UnitLeaderApprovalPage() {
               value={stats.approved}
               color="text-green-600"
             />
-            <Card title="Rejected" value={stats.rejected} color="text-pink-600" />
+            <Card
+              title="Rejected"
+              value={stats.rejected}
+              color="text-pink-600"
+            />
           </div>
 
           <div className="bg-[#fafafa] border border-border-light p-6 rounded-2xl shadow-sm space-y-4">
@@ -200,23 +247,65 @@ export default function UnitLeaderApprovalPage() {
 
           <div className="bg-white rounded-2xl overflow-hidden w-full">
             <div className="max-h-[520px] overflow-y-auto overflow-x-auto">
-              <table className="w-full text-sm min-w-[1000px]">
+              <table className="w-full text-sm min-w-[1250px]">
                 <thead className="sticky top-0 bg-[#f2f2f2] text-gray-600 z-10">
                   <tr>
-                    <th className="p-4 text-left">REQUEST ID</th>
-                    <th className="p-4 text-left">TYPE</th>
-                    <th className="p-4 text-left">USER NAME</th>
-                    <th className="p-4 text-left">BOOKING DATE</th>
+                    <SortableHeader
+                      label="REQUEST ID"
+                      column="id"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
+                    <SortableHeader
+                      label="TYPE"
+                      column="type"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
+                    <SortableHeader
+                      label="USER NAME"
+                      column="user_name"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
+                    <SortableHeader
+                      label="REQUEST MADE"
+                      column="created_at"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
+                    <SortableHeader
+                      label="BOOKING DATE"
+                      column="booking_date"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
                     <th className="p-4 text-left">START</th>
                     <th className="p-4 text-left">END</th>
-                    <th className="p-4 text-left">Lab / Equipment</th>
-                    <th className="p-4 text-left">UNIT LEADER STATUS</th>
+                    <SortableHeader
+                      label="ITEM"
+                      column="resource_name"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
+                    <SortableHeader
+                      label="PRICE"
+                      column="total_price"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
+                    <SortableHeader
+                      label="UNIT LEADER STATUS"
+                      column="status"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
                     <th className="p-4 text-left">ACTION</th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {filteredData.map((item) => (
+                  {sortedData.map((item) => (
                     <tr
                       key={`${item.type}-${item.id}`}
                       className="border-t hover:bg-gray-50"
@@ -224,10 +313,12 @@ export default function UnitLeaderApprovalPage() {
                       <td className="p-4">{item.id}</td>
                       <td className="p-4">{item.type}</td>
                       <td className="p-4">{item.user_name}</td>
+                      <td className="p-4">{formatDateTime(item.created_at)}</td>
                       <td className="p-4">{item.booking_date}</td>
                       <td className="p-4">{formatTime(item.start_time)}</td>
                       <td className="p-4">{formatTime(item.end_time)}</td>
                       <td className="p-4">{item.resource_name}</td>
+                      <td className="p-4">{formatPrice(item.total_price)}</td>
                       <td className="p-4">
                         <StatusBadge status={item.unit_leader_status} />
                       </td>
@@ -250,6 +341,57 @@ export default function UnitLeaderApprovalPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function getSortValue(item, key, statusKey) {
+  if (key === "created_at" || key === "booking_date") {
+    return new Date(item[key] || 0).getTime();
+  }
+
+  if (key === "total_price") {
+    return Number(item.total_price || 0);
+  }
+
+  if (key === "status") {
+    return String(item[statusKey] || "").toLowerCase();
+  }
+
+  if (key === "id") {
+    return Number(item.id || 0);
+  }
+
+  return String(item[key] || "").toLowerCase();
+}
+
+function SortableHeader({ label, column, sortConfig, onSort }) {
+  const isActive = sortConfig.key === column;
+  const indicator = isActive
+    ? sortConfig.direction === "asc"
+      ? " ▲"
+      : " ▼"
+    : "";
+
+  return (
+    <th
+      className="p-4 text-left"
+      aria-sort={
+        isActive
+          ? sortConfig.direction === "asc"
+            ? "ascending"
+            : "descending"
+          : "none"
+      }
+    >
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className="font-semibold uppercase hover:text-[#b0125b]"
+      >
+        {label}
+        {indicator}
+      </button>
+    </th>
   );
 }
 

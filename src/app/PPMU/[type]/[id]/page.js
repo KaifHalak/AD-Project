@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getCurrentSession } from "@/lib/supabase/auth";
+import { formatRmFromUsd } from "@/lib/currency";
 
 function formatTime(timeValue) {
   if (!timeValue) return "-";
@@ -29,6 +30,10 @@ function formatDateTime(dateTimeValue) {
     minute: "2-digit",
     hour12: true,
   });
+}
+
+function formatPrice(value) {
+  return value === null || value === undefined ? "-" : formatRmFromUsd(value);
 }
 
 export default function RequestDetailPage() {
@@ -196,6 +201,16 @@ export default function RequestDetailPage() {
           </p>
         ) : null}
 
+        <div className="mb-6 rounded-2xl border border-border-light bg-[#fafafa] p-5 text-sm text-gray-600 shadow-sm">
+          <p className="font-semibold text-[#b0125b]">Review instructions</p>
+          <p className="mt-2">
+            Review the request details carefully before final approval. If the
+            request is approved, confirm the grant, VOT number, and request
+            price so the finance side can deduct the required funds from the
+            correct allocation.
+          </p>
+        </div>
+
         <div className="space-y-6">
           {/* REQUEST OVERVIEW */}
           <Section title="Request Overview">
@@ -212,6 +227,7 @@ export default function RequestDetailPage() {
               </Field>
 
               <Field label="Booking Date" value={data.booking_date} />
+              <Field label="Request Made" value={formatDateTime(data.created_at)} />
             </Grid>
           </Section>
 
@@ -251,6 +267,18 @@ export default function RequestDetailPage() {
                 <Field
                   label="End Date & Time"
                   value={`${data.booking_date} ${formatTime(data.end_time)}`}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                <Field
+                  label="Grant Number"
+                  value={data.grant_number || "-"}
+                />
+                <Field label="VOT Number" value={data.vot_number || "-"} />
+                <Field
+                  label="Request Price"
+                  value={formatPrice(data.total_price)}
                 />
               </div>
 

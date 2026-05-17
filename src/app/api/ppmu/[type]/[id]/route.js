@@ -126,7 +126,7 @@ export async function GET(request, { params }) {
     const { data: booking, error: bookingError } = await admin
       .from("bookings")
       .select(
-        "id, booking_type, item_id, user_id, booking_date, start_time, end_time, status, item_name",
+        "id, booking_type, item_id, user_id, booking_date, start_time, end_time, status, item_name, grant_number, vot_number, total_price, created_at",
       )
       .eq("id", getBookingViewId(parsed.type, parsed.id))
       .maybeSingle();
@@ -187,9 +187,13 @@ export async function GET(request, { params }) {
           booking_date: booking.booking_date,
           start_time: booking.start_time,
           end_time: booking.end_time,
+          created_at: booking.created_at || null,
           status: toDisplayStatus(ppmuProcess?.decision),
           status_type: ppmuProcess?.decision || "pending",
           resource_name: booking.item_name || booking.item_id || "Unknown",
+          grant_number: booking.grant_number || "",
+          vot_number: booking.vot_number || "",
+          total_price: booking.total_price ?? null,
           user_name: requester?.username || "Unknown",
           user_email: requester?.email || "Unknown",
           user_role: requester?.role || "Unknown",

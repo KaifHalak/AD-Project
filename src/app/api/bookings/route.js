@@ -245,7 +245,9 @@ export async function GET(request) {
     const admin = getSupabaseAdminClient();
     let query = admin
       .from("bookings")
-      .select("id, booking_type, item_id, user_id, booking_date, start_time, end_time, status, item_name")
+      .select(
+        "id, booking_type, item_id, user_id, booking_date, start_time, end_time, status, item_name, grant_number, vot_number, total_price, created_at",
+      )
       .eq("user_id", profile.id)
       .order("booking_date", { ascending: false })
       .order("start_time", { ascending: false });

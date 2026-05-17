@@ -8,6 +8,7 @@ import {
 import {
   isBookingDateStringAllowed,
   isOfficeTimeRange,
+  toMinutes,
 } from "@/lib/bookingConstraints";
 import { findLabTimetableConflict } from "@/lib/mockTimetable";
 import { validateMockVotFunding } from "@/lib/mockVotFunding";
@@ -30,8 +31,10 @@ export async function POST(request) {
     const endTime = body?.endTime;
     const picCode = body?.picCode?.trim()?.toUpperCase();
     const bookingReason = (body?.bookingReason || body?.usage || "").trim();
-    const projectGrantVotNo = body?.projectGrantVotNo;
-    const expenseVot = body?.expenseVot;
+    const grantNumber = String(body?.grantNumber || body?.projectGrantVotNo || "")
+      .trim()
+      .toUpperCase();
+    const votNumber = String(body?.votNumber || body?.expenseVot || "").trim();
 
     if (!labId || !bookingDate || !startTime || !endTime) {
       return NextResponse.json(
@@ -65,8 +68,8 @@ export async function POST(request) {
     }
 
     const votValidation = validateMockVotFunding({
-      projectGrantVotNo,
-      expenseVot,
+      grantNumber,
+      votNumber,
     });
 
     if (!votValidation.ok) {
@@ -108,7 +111,7 @@ export async function POST(request) {
     const admin = getSupabaseAdminClient();
     const { data: lab, error: labError } = await admin
       .from("labs")
-      .select("id, status")
+      .select("id, status, price_per_hour")
       .eq("id", labId)
       .maybeSingle();
 
@@ -122,6 +125,14 @@ export async function POST(request) {
         { status: 409 },
       );
     }
+
+    const durationHours = Math.max(
+      0,
+      (toMinutes(endTime) - toMinutes(startTime)) / 60,
+    );
+    const totalPrice = Number(
+      (durationHours * Number(lab.price_per_hour || 0)).toFixed(2),
+    );
 
     const timetableConflict = findLabTimetableConflict({
       labId,
@@ -175,6 +186,9 @@ export async function POST(request) {
         status: "pending",
         user_id: requester.id,
         booking_reason: bookingReason,
+        grant_number: grantNumber,
+        vot_number: votNumber,
+        total_price: totalPrice,
       })
       .select("*")
       .maybeSingle();

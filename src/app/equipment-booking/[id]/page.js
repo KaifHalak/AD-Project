@@ -29,6 +29,7 @@ import {
 } from "@/lib/mockTimetable";
 import {
   MOCK_VOT_ACCOUNTS,
+  MOCK_VOT_OPTIONS,
   validateMockVotFunding,
 } from "@/lib/mockVotFunding";
 
@@ -81,8 +82,8 @@ export default function EquipmentBookingPage() {
   };
 
   const applySampleVot = (account) => {
-    setProjectGrantVotNo(account.projectGrantVotNo);
-    setExpenseVot(account.expenseVot);
+    setProjectGrantVotNo(account.grantNumber);
+    setExpenseVot(account.votNumber);
     setErrorMessage("");
     setSuccessMessage("");
   };
@@ -396,6 +397,8 @@ export default function EquipmentBookingPage() {
           bookingReason: usage.trim(),
           projectGrantVotNo: projectGrantVotNo.trim().toUpperCase(),
           expenseVot: expenseVot.trim(),
+          grantNumber: projectGrantVotNo.trim().toUpperCase(),
+          votNumber: expenseVot.trim(),
         }),
       });
 
@@ -451,6 +454,9 @@ export default function EquipmentBookingPage() {
                 {equipment.name}
               </h1>
               <p className="mt-2 text-sm text-text-muted">ID: {equipment.id}</p>
+              <p className="mt-3 text-sm font-semibold text-primary">
+                {formatRmFromUsd(equipment.price_per_hour || 0)}/hr
+              </p>
             </div>
           </div>
 
@@ -795,28 +801,49 @@ export default function EquipmentBookingPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
-                  Project / Grant VOT No.
+                  Grant Number
                 </p>
                 <Input
                   placeholder="Q.J130000.3851.19J91"
                   value={projectGrantVotNo}
-                  onChange={(event) =>
-                    setProjectGrantVotNo(event.target.value.toUpperCase())
-                  }
+                  onChange={(event) => {
+                    const nextValue = event.target.value.toUpperCase();
+                    setProjectGrantVotNo(nextValue);
+                    if (!nextValue.trim()) {
+                      setExpenseVot("");
+                    }
+                  }}
                 />
               </div>
 
               <div>
                 <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
-                  Expense VOT
+                  VOT Number
                 </p>
-                <Input
-                  placeholder="27000"
+                <select
                   value={expenseVot}
                   onChange={(event) => setExpenseVot(event.target.value)}
-                />
+                  disabled={!projectGrantVotNo.trim()}
+                  className="h-11 w-full rounded-xl border border-border-light bg-white px-3 text-text-main outline-none transition-colors focus:border-primary disabled:cursor-not-allowed disabled:bg-background-main disabled:text-text-muted"
+                >
+                  <option value="">Select VOT number</option>
+                  {MOCK_VOT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
+
+            {projectGrantVotNo.trim() && expenseVot.trim() ? (
+              <div className="mt-4">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Total Price
+                </p>
+                <Input value={formatRmFromUsd(total)} readOnly />
+              </div>
+            ) : null}
 
             <div className="mt-4 flex flex-col gap-3 sm:flex-row">
               <Button

@@ -103,7 +103,7 @@ export async function GET(request) {
     const { data: bookings, error: bookingsError } = await admin
       .from("bookings")
       .select(
-        "id, booking_type, item_id, user_id, booking_date, start_time, end_time, status, item_name",
+        "id, booking_type, item_id, user_id, booking_date, start_time, end_time, status, item_name, grant_number, vot_number, total_price, created_at",
       )
       .in("id", bookingIds);
 
@@ -185,6 +185,10 @@ export async function GET(request) {
           start_time: booking.start_time,
           end_time: booking.end_time,
           resource_name: booking.item_name || booking.item_id || "Unknown",
+          grant_number: booking.grant_number || "",
+          vot_number: booking.vot_number || "",
+          total_price: booking.total_price ?? null,
+          created_at: booking.created_at || null,
           unit_leader_status: "Approved",
           unit_leader_decision_at: unitLeaderProcess.decision_at,
           ppmu_status: ppmuStatus,
