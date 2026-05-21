@@ -43,7 +43,7 @@ export async function getRequesterProfile(
   const scopedClient = getSupabaseServerClient(accessToken);
   const { data: requester, error: requesterError } = await scopedClient
     .from("users")
-    .select("id, email, role")
+    .select("id, username, email, role")
     .eq("email", authData.user.email)
     .maybeSingle();
 

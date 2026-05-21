@@ -12,6 +12,7 @@ import {
 } from "@/lib/bookingConstraints";
 import { findEquipmentTimetableConflict } from "@/lib/mockTimetable";
 import { validateMockVotFunding } from "@/lib/mockVotFunding";
+import { sendBookingSubmittedEmail } from "@/lib/bookingDecisionEmail";
 
 export async function POST(request) {
   try {
@@ -127,7 +128,7 @@ export async function POST(request) {
     const admin = getSupabaseAdminClient();
     const { data: equipment, error: equipmentError } = await admin
       .from("equipment")
-      .select("id, status, price_per_hour")
+      .select("id, name, status, price_per_hour")
       .eq("id", equipmentId)
       .maybeSingle();
 
@@ -204,8 +205,22 @@ export async function POST(request) {
       );
     }
 
+    const notification = await sendBookingSubmittedEmail({
+      booking: {
+        ...booking,
+        booking_type: "equipment",
+        item_id: equipmentId,
+        item_name: equipment.name,
+      },
+      requester,
+    });
+
     return NextResponse.json(
-      { message: "Booking submitted. Waiting for approval.", booking },
+      {
+        message: "Booking submitted. Waiting for approval.",
+        booking,
+        notification,
+      },
       { status: 201 },
     );
   } catch (error) {
