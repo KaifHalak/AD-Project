@@ -77,6 +77,38 @@ async function enrichBooking(admin, booking) {
   };
 }
 
+async function getBookingProcess(admin, type, bookingId) {
+  const { data, error } = await admin
+    .from("booking_process")
+    .select("*")
+    .eq("booking_type", type)
+    .eq("booking_id", bookingId)
+    .order("decision_at", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching booking process:", error);
+    return [];
+  }
+
+  return data || [];
+}
+
+async function getUsersByIds(admin, userIds) {
+  if (!userIds || userIds.length === 0) return [];
+
+  const { data, error } = await admin
+    .from("users")
+    .select("id, username, email, role")
+    .in("id", userIds);
+
+  if (error) {
+    console.error("Error fetching users:", error);
+    return [];
+  }
+
+  return data || [];
+}
+
 async function getSourceBooking(admin, parsedBooking) {
   const selectColumns = `id, user_id, status, booking_date, start_time, end_time, ${parsedBooking.itemColumn}`;
   const { data, error } = await admin
@@ -114,7 +146,12 @@ export async function GET(request, { params }) {
       .eq("id", id)
       .maybeSingle();
 
-    if (fetchError || !booking) {
+    if (fetchError) {
+      console.error("Database error fetching booking:", fetchError);
+      return NextResponse.json({ error: "Database error fetching booking." }, { status: 500 });
+    }
+
+    if (!booking) {
       return NextResponse.json({ error: "Booking not found." }, { status: 404 });
     }
 
@@ -125,10 +162,113 @@ export async function GET(request, { params }) {
       );
     }
 
-    return NextResponse.json(
-      { booking: await enrichBooking(admin, booking) },
-      { status: 200 },
+    const parsedId = parseBookingId(id);
+    const sourceId = parsedId?.sourceId;
+
+    // Get approval process data
+    const processRecords = sourceId
+      ? await getBookingProcess(admin, booking.booking_type, sourceId)
+      : [];
+
+    // Get user details
+    const reviewerIds = processRecords.map((p) => p.reviewer_id).filter(Boolean);
+    const userIds = [...new Set([booking.user_id, ...reviewerIds])];
+    const users = await getUsersByIds(admin, userIds);
+
+    const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
+    const bookingUser = userMap[booking.user_id];
+
+    // Get PIC token details - find token assigned to this user
+    const { data: picTokenData } = await admin
+      .from("pic_tokens")
+      .select("token, created_at, expires_at, assigned_by")
+      .eq("assigned_to", booking.user_id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // Get PIC user details if token exists
+    let picUser = null;
+    if (picTokenData?.assigned_by) {
+      const { data: picUserData } = await admin
+        .from("users")
+        .select("id, username, email")
+        .eq("id", picTokenData.assigned_by)
+        .maybeSingle();
+      picUser = picUserData;
+    }
+
+    // Format approval process data
+    const unitLeaderReview = processRecords.find(
+      (p) => p.reviewer_role === "unit_leader" && p.decision,
     );
+    const ppmuReview = processRecords.find(
+      (p) => p.reviewer_role === "ppmu" && p.decision,
+    );
+
+    const enrichedBooking = await enrichBooking(admin, booking);
+
+    // Get booking reason from source table
+    const sourceTable = booking.booking_type === "lab" ? "lab_bookings" : "equipment_bookings";
+    const { data: sourceBooking } = await admin
+      .from(sourceTable)
+      .select("booking_reason")
+      .eq("id", sourceId)
+      .maybeSingle();
+
+    const response = {
+      booking: {
+        ...enrichedBooking,
+        reason: sourceBooking?.booking_reason || "No reason provided",
+      },
+      user: bookingUser
+        ? {
+            name: bookingUser.username || "N/A",
+            email: bookingUser.email || "N/A",
+            role: bookingUser.role || "N/A",
+          }
+        : null,
+      pic: picTokenData
+        ? {
+            username: picUser?.username || "N/A",
+            email: picUser?.email || "N/A",
+            token: `PIC-${new Date(picTokenData.created_at).getFullYear()}-${picTokenData.token}`,
+            rawToken: picTokenData.token,
+            generatedAt: picTokenData.created_at,
+            expiresAt: picTokenData.expires_at,
+          }
+        : null,
+      unitLeaderReview: unitLeaderReview
+        ? {
+            decision: unitLeaderReview.decision,
+            decisionAt: unitLeaderReview.decision_at,
+            remarks: unitLeaderReview.remarks,
+            approver: unitLeaderReview.reviewer_id
+              ? {
+                  name: userMap[unitLeaderReview.reviewer_id]?.username || "N/A",
+                  email: userMap[unitLeaderReview.reviewer_id]?.email || "N/A",
+                  role: "Unit Leader",
+                }
+              : null,
+          }
+        : null,
+      ppmuReview: ppmuReview
+        ? {
+            decision: ppmuReview.decision,
+            decisionAt: ppmuReview.decision_at,
+            remarks: ppmuReview.remarks,
+            approver: ppmuReview.reviewer_id
+              ? {
+                  name: userMap[ppmuReview.reviewer_id]?.username || "N/A",
+                  email: userMap[ppmuReview.reviewer_id]?.email || "N/A",
+                  role: "PPMU Officer",
+                }
+              : null,
+          }
+        : null,
+    };
+
+    return NextResponse.json(response, { status: 200 });
   } catch (error) {
     console.error("Error in GET /api/bookings/[id]:", error);
     return NextResponse.json(
