@@ -148,7 +148,7 @@ export async function GET(request, { params }) {
       parsed.type === "lab" ? "lab_bookings" : "equipment_bookings";
     const { data: sourceBooking, error: sourceBookingError } = await admin
       .from(sourceTable)
-      .select("booking_reason")
+      .select("booking_reason, requester_identifier, requester_faculty, requester_contact")
       .eq("id", parsed.id)
       .maybeSingle();
 
@@ -174,6 +174,9 @@ export async function GET(request, { params }) {
           user_name: requester?.username || "Unknown",
           user_email: requester?.email || "Unknown",
           user_role: requester?.role || "Unknown",
+          requester_identifier: sourceBooking?.requester_identifier || "",
+          requester_faculty: sourceBooking?.requester_faculty || "",
+          requester_contact: sourceBooking?.requester_contact || "",
           usage: sourceBooking?.booking_reason || "",
           unit_leader_name: unitLeader?.username || "N/A",
           unit_leader_email: unitLeader?.email || "N/A",

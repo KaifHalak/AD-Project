@@ -78,6 +78,9 @@ export async function POST(request) {
     const picCode = body?.picCode?.trim()?.toUpperCase();
     const bookingReason = (body?.bookingReason || body?.usage || "").trim();
     const votNumber = String(body?.votNumber || body?.expenseVot || "").trim();
+    const requesterIdentifier = String(body?.requesterIdentifier || "").trim();
+    const requesterFaculty = String(body?.requesterFaculty || "").trim();
+    const requesterContact = String(body?.requesterContact || "").trim();
 
     if (!labId || !bookingDate || !startTime || !endTime) {
       return NextResponse.json(
@@ -112,6 +115,13 @@ export async function POST(request) {
     if (!votNumber) {
       return NextResponse.json(
         { error: "Please enter your VOT number." },
+        { status: 400 },
+      );
+    }
+
+    if (!requesterIdentifier || !requesterFaculty || !requesterContact) {
+      return NextResponse.json(
+        { error: "Please enter your ID, faculty, and contact number." },
         { status: 400 },
       );
     }
@@ -227,6 +237,9 @@ export async function POST(request) {
       booking_reason: bookingReason,
       grant_number: "",
       vot_number: votNumber,
+      requester_identifier: requesterIdentifier,
+      requester_faculty: requesterFaculty,
+      requester_contact: requesterContact,
       total_price: dailyPrice,
     }));
 

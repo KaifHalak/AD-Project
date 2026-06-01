@@ -149,7 +149,7 @@ function getDecisionLabel(decision) {
 }
 
 async function getSourceBooking(admin, parsedBooking) {
-  const selectColumns = `id, user_id, status, booking_date, start_time, end_time, booking_reason, ${parsedBooking.itemColumn}`;
+  const selectColumns = `id, user_id, status, booking_date, start_time, end_time, booking_reason, requester_identifier, requester_faculty, requester_contact, ${parsedBooking.itemColumn}`;
   const { data, error } = await admin
     .from(parsedBooking.tableName)
     .select(selectColumns)
@@ -274,6 +274,10 @@ export async function GET(request, { params }) {
           source_status: booking.status,
           source_id: parsedBooking.sourceId,
           booking_reason: sourceBookingResult.data?.booking_reason || "",
+          requester_identifier:
+            sourceBookingResult.data?.requester_identifier || "",
+          requester_faculty: sourceBookingResult.data?.requester_faculty || "",
+          requester_contact: sourceBookingResult.data?.requester_contact || "",
           pic_token: booking.token || "",
           pic_name: picUser?.username || "N/A",
           pic_email: picUser?.email || "N/A",

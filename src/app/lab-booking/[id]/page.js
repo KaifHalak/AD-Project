@@ -193,7 +193,13 @@ function LabReservationContent() {
   const [usage, setUsage] = useState("");
   const [votNumber, setVotNumber] = useState("");
   const [token, setToken] = useState("");
+  const [requesterProfile, setRequesterProfile] = useState(null);
   const [requesterRole, setRequesterRole] = useState("");
+  const [requesterIdentifier, setRequesterIdentifier] = useState("");
+  const [requesterFaculty, setRequesterFaculty] = useState("");
+  const [requesterContact, setRequesterContact] = useState("");
+  const [picDetails, setPicDetails] = useState(null);
+  const [picDetailsMessage, setPicDetailsMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -244,7 +250,7 @@ function LabReservationContent() {
   useEffect(() => {
     let isMounted = true;
 
-    async function loadRequesterRole() {
+    async function loadRequesterProfile() {
       const { data: userData, error: userError } = await getCurrentUser();
 
       if (!isMounted || userError || !userData?.user?.email) {
@@ -255,22 +261,90 @@ function LabReservationContent() {
         "users",
         "email",
         userData.user.email,
-        "role",
+        "id, username, email, role",
       );
 
       if (!isMounted || profileError || !profile) {
         return;
       }
 
+      setRequesterProfile(profile);
       setRequesterRole(profile.role || "");
     }
 
-    loadRequesterRole();
+    loadRequesterProfile();
 
     return () => {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const formattedToken = token.trim().toUpperCase();
+
+    async function loadPicDetails() {
+      setPicDetails(null);
+      setPicDetailsMessage("");
+
+      if (requesterRole === "pic" && requesterProfile) {
+        setPicDetails(requesterProfile);
+        return;
+      }
+
+      if (!formattedToken || formattedToken.length !== 6 || !requesterProfile?.id) {
+        return;
+      }
+
+      const supabase = getSupabaseBrowserClient();
+      const { data: assignedToken, error: tokenError } = await supabase
+        .from("pic_tokens")
+        .select("assigned_by, expires_at, manual_expire")
+        .eq("token", formattedToken)
+        .eq("assigned_to", requesterProfile.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!isMounted) return;
+
+      if (tokenError || !assignedToken) {
+        setPicDetailsMessage("No PIC details found for this token.");
+        return;
+      }
+
+      if (assignedToken.manual_expire) {
+        setPicDetailsMessage("This token has been manually expired.");
+        return;
+      }
+
+      if (new Date(assignedToken.expires_at).getTime() <= Date.now()) {
+        setPicDetailsMessage("This token has expired.");
+        return;
+      }
+
+      const { data: picUser, error: picError } = await supabase
+        .from("users")
+        .select("id, username, email, role")
+        .eq("id", assignedToken.assigned_by)
+        .maybeSingle();
+
+      if (!isMounted) return;
+
+      if (picError || !picUser) {
+        setPicDetailsMessage("Could not load PIC details for this token.");
+        return;
+      }
+
+      setPicDetails(picUser);
+    }
+
+    loadPicDetails();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [requesterProfile, requesterRole, token]);
 
   useEffect(() => {
     let isMounted = true;
@@ -404,6 +478,9 @@ function LabReservationContent() {
       endTime &&
       usage.trim() &&
       votNumber.trim() &&
+      requesterIdentifier.trim() &&
+      requesterFaculty.trim() &&
+      requesterContact.trim() &&
       bookingDates.length > 0 &&
       (isPicRequester || token.trim()),
   );
@@ -454,6 +531,15 @@ function LabReservationContent() {
       return;
     }
 
+    if (
+      !requesterIdentifier.trim() ||
+      !requesterFaculty.trim() ||
+      !requesterContact.trim()
+    ) {
+      setErrorMessage("Please enter your ID, faculty, and contact number.");
+      return;
+    }
+
     if (!isPicRequester && !formattedToken) {
       setErrorMessage("Please enter your authorization token.");
       return;
@@ -486,6 +572,9 @@ function LabReservationContent() {
           bookingReason: usage.trim(),
           grantNumber: "",
           votNumber: votNumber.trim(),
+          requesterIdentifier: requesterIdentifier.trim(),
+          requesterFaculty: requesterFaculty.trim(),
+          requesterContact: requesterContact.trim(),
         }),
       });
 
@@ -515,6 +604,9 @@ function LabReservationContent() {
       setToken("");
       setUsage("");
       setVotNumber("");
+      setRequesterIdentifier("");
+      setRequesterFaculty("");
+      setRequesterContact("");
     } catch (error) {
       console.error(error);
       setErrorMessage("Unexpected error while booking a lab.");
@@ -618,7 +710,71 @@ function LabReservationContent() {
 
           <section className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              02 Availability Preview
+              02 User Details
+            </p>
+            <div className="grid gap-4 rounded-xl border border-border-light bg-white p-5 md:grid-cols-3 md:p-6">
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Username
+                </p>
+                <Input value={requesterProfile?.username || ""} readOnly />
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Role
+                </p>
+                <Input value={requesterProfile?.role || ""} readOnly />
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Email
+                </p>
+                <Input value={requesterProfile?.email || ""} readOnly />
+              </div>
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+              03 Additional Requester Details
+            </p>
+            <div className="grid gap-4 rounded-xl border border-border-light bg-white p-5 md:grid-cols-3 md:p-6">
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  ID
+                </p>
+                <Input
+                  placeholder="Enter your ID"
+                  value={requesterIdentifier}
+                  onChange={(event) => setRequesterIdentifier(event.target.value)}
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Faculty
+                </p>
+                <Input
+                  placeholder="Enter your faculty"
+                  value={requesterFaculty}
+                  onChange={(event) => setRequesterFaculty(event.target.value)}
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Contact Number
+                </p>
+                <Input
+                  placeholder="Enter your contact number"
+                  value={requesterContact}
+                  onChange={(event) => setRequesterContact(event.target.value)}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+              04 Availability Preview
             </p>
             <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
               <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -772,7 +928,7 @@ function LabReservationContent() {
 
           <section className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              03 Date and Time Selection
+              05 Date and Time Selection
             </p>
             <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
               <div className="grid gap-6 md:grid-cols-2">
@@ -943,7 +1099,7 @@ function LabReservationContent() {
 
           <section className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              04 Equipment
+              06 Equipment
             </p>
             <div className="rounded-xl border border-border-light bg-white px-4 py-4 text-sm text-text-muted">
               Basic equipment will be provided with your lab booking.
@@ -952,7 +1108,7 @@ function LabReservationContent() {
 
           <section className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              05 Usage Context
+              07 Usage Context
             </p>
             <textarea
               rows={6}
@@ -965,7 +1121,7 @@ function LabReservationContent() {
 
           <section className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              06 Billing
+              08 Billing
             </p>
             <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
@@ -994,7 +1150,7 @@ function LabReservationContent() {
           {!isPicRequester ? (
             <section className="space-y-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-                07 Authorization Token
+                09 Authorization Token
               </p>
               <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
                 <p className="mb-3 text-sm text-text-muted">
@@ -1008,6 +1164,41 @@ function LabReservationContent() {
                   maxLength={6}
                   onChange={(event) => setToken(event.target.value.toUpperCase())}
                 />
+
+                {picDetails ? (
+                  <div className="mt-4 grid gap-4 rounded-xl border border-border-light bg-background-main p-4 md:grid-cols-3">
+                    <div>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                        PIC Username
+                      </p>
+                      <p className="text-sm font-medium text-text-main">
+                        {picDetails.username || "-"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                        PIC Role
+                      </p>
+                      <p className="text-sm font-medium text-text-main">
+                        {picDetails.role || "-"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                        PIC Email
+                      </p>
+                      <p className="break-words text-sm font-medium text-text-main">
+                        {picDetails.email || "-"}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
+                {picDetailsMessage ? (
+                  <p className="mt-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+                    {picDetailsMessage}
+                  </p>
+                ) : null}
 
                 {errorMessage ? (
                   <p className="mt-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">

@@ -233,6 +233,12 @@ export default function BookingRecordDetailPage() {
             <Field label="User Name" value={booking.user_name} />
             <Field label="User Email" value={booking.user_email} />
             <Field label="User Role" value={booking.user_role} />
+            <Field label="User ID" value={booking.requester_identifier || "-"} />
+            <Field label="Faculty" value={booking.requester_faculty || "-"} />
+            <Field
+              label="Contact Number"
+              value={booking.requester_contact || "-"}
+            />
           </Grid>
         </Section>
 

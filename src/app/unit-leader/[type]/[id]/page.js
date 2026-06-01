@@ -230,6 +230,9 @@ export default function UnitLeaderRequestDetailPage() {
               <Field label="User Name" value={data.user_name} />
               <Field label="User Email" value={data.user_email} />
               <Field label="User Role" value={data.user_role} />
+              <Field label="User ID" value={data.requester_identifier || "-"} />
+              <Field label="Faculty" value={data.requester_faculty || "-"} />
+              <Field label="Contact Number" value={data.requester_contact || "-"} />
             </div>
           </Section>
 

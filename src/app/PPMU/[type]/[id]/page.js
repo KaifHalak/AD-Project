@@ -240,6 +240,12 @@ export default function RequestDetailPage() {
 
               <Field label="User Role" value={data.user_role} />
 
+              <Field label="User ID" value={data.requester_identifier || "-"} />
+
+              <Field label="Faculty" value={data.requester_faculty || "-"} />
+
+              <Field label="Contact Number" value={data.requester_contact || "-"} />
+
               <Field label="Unit Leader Name" value={data.unit_leader_name} />
 
               <Field label="Unit Leader Email" value={data.unit_leader_email} />
