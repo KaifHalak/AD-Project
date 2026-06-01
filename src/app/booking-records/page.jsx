@@ -313,6 +313,13 @@ export default function BookingRecordsPage() {
                   </div>
 
                   <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
+                    <Link
+                      href={`/booking-records/${encodeURIComponent(booking.id)}`}
+                      className="inline-flex h-11 items-center justify-center rounded-xl border border-border-light bg-white px-4 text-base font-semibold text-text-main transition-colors hover:bg-background-main"
+                    >
+                      View Details
+                    </Link>
+
                     {booking.is_final_approved ? (
                       <Link
                         href={

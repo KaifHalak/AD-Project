@@ -77,8 +77,79 @@ async function enrichBooking(admin, booking) {
   };
 }
 
+function getProcessTime(process) {
+  return new Date(process?.decision_at || process?.created_at || 0).getTime();
+}
+
+function getLatestProcessByRole(processes, reviewerRole) {
+  return (processes || [])
+    .filter((process) => process.reviewer_role === reviewerRole)
+    .sort((a, b) => getProcessTime(b) - getProcessTime(a))[0];
+}
+
+function getDisplayStatus(booking, unitLeaderProcess, ppmuProcess) {
+  if (booking.status === "cancelled") {
+    return {
+      display_status: "Cancelled",
+      display_status_type: "cancelled",
+      rejection_reason: "",
+      is_final_approved: false,
+    };
+  }
+
+  if (!unitLeaderProcess) {
+    return {
+      display_status: "Pending Unit Leader Approval",
+      display_status_type: "pending",
+      rejection_reason: "",
+      is_final_approved: false,
+    };
+  }
+
+  if (unitLeaderProcess.decision === "rejected") {
+    return {
+      display_status: "Rejected by Unit Leader",
+      display_status_type: "rejected",
+      rejection_reason:
+        unitLeaderProcess.rejection_reason || unitLeaderProcess.remarks || "",
+      is_final_approved: false,
+    };
+  }
+
+  if (!ppmuProcess) {
+    return {
+      display_status: "Approved by Unit Leader, Pending Approval by PPMU",
+      display_status_type: "pending",
+      rejection_reason: "",
+      is_final_approved: false,
+    };
+  }
+
+  if (ppmuProcess.decision === "rejected") {
+    return {
+      display_status: "Rejected by PPMU",
+      display_status_type: "rejected",
+      rejection_reason: ppmuProcess.rejection_reason || ppmuProcess.remarks || "",
+      is_final_approved: false,
+    };
+  }
+
+  return {
+    display_status: "Approved",
+    display_status_type: "approved",
+    rejection_reason: "",
+    is_final_approved: ppmuProcess.decision === "approved",
+  };
+}
+
+function getDecisionLabel(decision) {
+  if (decision === "approved") return "Approved";
+  if (decision === "rejected") return "Rejected";
+  return "Pending";
+}
+
 async function getSourceBooking(admin, parsedBooking) {
-  const selectColumns = `id, user_id, status, booking_date, start_time, end_time, ${parsedBooking.itemColumn}`;
+  const selectColumns = `id, user_id, status, booking_date, start_time, end_time, booking_reason, ${parsedBooking.itemColumn}`;
   const { data, error } = await admin
     .from(parsedBooking.tableName)
     .select(selectColumns)
@@ -104,12 +175,18 @@ export async function GET(request, { params }) {
     }
 
     const { id } = await params;
+    const parsedBooking = parseBookingId(id);
+
+    if (!parsedBooking) {
+      return NextResponse.json({ error: "Invalid booking ID." }, { status: 400 });
+    }
+
     const admin = getSupabaseAdminClient();
 
     const { data: booking, error: fetchError } = await admin
       .from("bookings")
       .select(
-        "id, booking_type, item_id, user_id, booking_date, start_time, end_time, status, grant_number, vot_number, total_price, created_at",
+        "id, booking_type, item_id, user_id, booking_date, start_time, end_time, status, item_name, grant_number, vot_number, total_price, created_at, token, assigned_by_id",
       )
       .eq("id", id)
       .maybeSingle();
@@ -125,8 +202,107 @@ export async function GET(request, { params }) {
       );
     }
 
+    const [
+      enrichedBooking,
+      sourceBookingResult,
+      processResult,
+    ] = await Promise.all([
+      enrichBooking(admin, booking),
+      getSourceBooking(admin, parsedBooking),
+      admin
+        .from("booking_process")
+        .select("*")
+        .eq("booking_type", parsedBooking.bookingType)
+        .eq("booking_id", parsedBooking.sourceId),
+    ]);
+
+    if (sourceBookingResult.error) {
+      console.error("Error fetching booking reason:", sourceBookingResult.error);
+    }
+
+    if (processResult.error) {
+      console.error("Error fetching booking processes:", processResult.error);
+      return NextResponse.json(
+        { error: "Could not fetch booking review details." },
+        { status: 500 },
+      );
+    }
+
+    const unitLeaderProcess = getLatestProcessByRole(
+      processResult.data,
+      "unit_leader",
+    );
+    const ppmuProcess = getLatestProcessByRole(processResult.data, "ppmu");
+    const reviewerIds = [
+      unitLeaderProcess?.reviewer_id,
+      ppmuProcess?.reviewer_id,
+    ].filter(Boolean);
+    const userIds = [
+      ...new Set([booking.user_id, booking.assigned_by_id, ...reviewerIds].filter(Boolean)),
+    ];
+
+    const { data: users, error: usersError } = userIds.length
+      ? await admin
+          .from("users")
+          .select("id, username, email, role")
+          .in("id", userIds)
+      : { data: [], error: null };
+
+    if (usersError) {
+      console.error("Error fetching booking detail users:", usersError);
+      return NextResponse.json(
+        { error: "Could not fetch booking user details." },
+        { status: 500 },
+      );
+    }
+
+    const usersById = new Map((users || []).map((user) => [user.id, user]));
+    const requester = usersById.get(booking.user_id);
+    const picUser = usersById.get(booking.assigned_by_id);
+    const unitLeader = usersById.get(unitLeaderProcess?.reviewer_id);
+    const ppmu = usersById.get(ppmuProcess?.reviewer_id);
+    const displayStatus = getDisplayStatus(
+      booking,
+      unitLeaderProcess,
+      ppmuProcess,
+    );
+
     return NextResponse.json(
-      { booking: await enrichBooking(admin, booking) },
+      {
+        booking: {
+          ...enrichedBooking,
+          source_status: booking.status,
+          source_id: parsedBooking.sourceId,
+          booking_reason: sourceBookingResult.data?.booking_reason || "",
+          pic_token: booking.token || "",
+          pic_name: picUser?.username || "N/A",
+          pic_email: picUser?.email || "N/A",
+          user_name: requester?.username || "Unknown",
+          user_email: requester?.email || "Unknown",
+          user_role: requester?.role || "Unknown",
+          unit_leader_decision: unitLeaderProcess?.decision || "pending",
+          unit_leader_status: getDecisionLabel(unitLeaderProcess?.decision),
+          unit_leader_date: unitLeaderProcess?.decision_at || null,
+          unit_leader_remarks: unitLeaderProcess?.remarks || "",
+          unit_leader_rejection_reason:
+            unitLeaderProcess?.rejection_reason ||
+            unitLeaderProcess?.remarks ||
+            "",
+          unit_leader_name: unitLeader?.username || "N/A",
+          unit_leader_email: unitLeader?.email || "N/A",
+          unit_leader_role: unitLeader?.role || "N/A",
+          ppmu_decision: ppmuProcess?.decision || "pending",
+          ppmu_status: getDecisionLabel(ppmuProcess?.decision),
+          ppmu_date: ppmuProcess?.decision_at || null,
+          ppmu_remarks: ppmuProcess?.remarks || "",
+          ppmu_rejection_reason:
+            ppmuProcess?.rejection_reason || ppmuProcess?.remarks || "",
+          ppmu_name: ppmu?.username || "N/A",
+          ppmu_email: ppmu?.email || "N/A",
+          ppmu_role: ppmu?.role || "N/A",
+          ...displayStatus,
+        },
+      },
       { status: 200 },
     );
   } catch (error) {
