@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import Loader from "@/components/loader";
@@ -27,6 +27,14 @@ function buildPrefillPath(booking) {
 }
 
 export default function BookingReschedulePage() {
+  return (
+    <Suspense fallback={<Loader text="Redirecting to booking page..." />}>
+      <BookingRescheduleContent />
+    </Suspense>
+  );
+}
+
+function BookingRescheduleContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const bookingId = searchParams.get("id") || "";

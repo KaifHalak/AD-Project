@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,15 +26,12 @@ import {
   findLabTimetableConflict,
   getLabTimetableEvents,
 } from "@/lib/mockTimetable";
-import {
-  MOCK_VOT_ACCOUNTS,
-  MOCK_VOT_OPTIONS,
-  validateMockVotFunding,
-} from "@/lib/mockVotFunding";
 
 const START_TIMES = START_TIME_OPTIONS;
 
 const END_TIMES = END_TIME_OPTIONS;
+const MAX_RANGE_DAYS = 14;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const SUGGESTED_SLOTS = [
   ["09:00", "11:00"],
@@ -85,6 +82,41 @@ function getDurationHours(startTime, endTime) {
   return Math.max(0, (toMinutes(endTime) - toMinutes(startTime)) / 60);
 }
 
+function addDaysToDateString(dateString, days) {
+  const parsed = parseDateInput(dateString);
+  if (!parsed) return dateString;
+
+  parsed.setDate(parsed.getDate() + days);
+  return formatDateInput(parsed);
+}
+
+function getBookingDatesInRange(startDateString, endDateString) {
+  const startDate = parseDateInput(startDateString);
+  const endDate = parseDateInput(endDateString || startDateString);
+
+  if (!startDate || !endDate || endDate < startDate) {
+    return [];
+  }
+
+  const rangeDays = Math.floor((endDate - startDate) / MS_PER_DAY) + 1;
+  if (rangeDays > MAX_RANGE_DAYS) {
+    return [];
+  }
+
+  const dates = [];
+  const cursor = new Date(startDate);
+
+  while (cursor <= endDate) {
+    if (!isWeekendDate(cursor)) {
+      dates.push(formatDateInput(cursor));
+    }
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return dates;
+}
+
 function isActiveBooking(booking) {
   return ["pending", "approved", "class"].includes(booking.status);
 }
@@ -124,6 +156,24 @@ function isUnderMaintenance(item) {
 }
 
 export default function LabReservationPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-full bg-background-main px-3 py-4 md:px-6 md:py-6">
+          <section className="rounded-2xl border border-border-light bg-background-main p-5 md:p-8">
+            <p className="rounded-lg border border-border-light bg-white px-3 py-4 text-sm text-text-muted">
+              Loading lab reservation...
+            </p>
+          </section>
+        </main>
+      }
+    >
+      <LabReservationContent />
+    </Suspense>
+  );
+}
+
+function LabReservationContent() {
   const { id } = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -137,11 +187,11 @@ export default function LabReservationPage() {
   const [lab, setLab] = useState(null);
   const [bookings, setBookings] = useState([]);
   const [selectedDate, setSelectedDate] = useState(initialDate);
+  const [bookingEndDate, setBookingEndDate] = useState(initialDate);
   const [startTime, setStartTime] = useState(initialStart);
   const [endTime, setEndTime] = useState(initialEnd);
   const [usage, setUsage] = useState("");
-  const [projectGrantVotNo, setProjectGrantVotNo] = useState("");
-  const [expenseVot, setExpenseVot] = useState("");
+  const [votNumber, setVotNumber] = useState("");
   const [token, setToken] = useState("");
   const [requesterRole, setRequesterRole] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -175,6 +225,21 @@ export default function LabReservationPage() {
 
     setLocalDateWarning("");
   }, [defaultBookingDate, selectedDate]);
+
+  useEffect(() => {
+    const startDate = parseDateInput(selectedDate);
+    const endDate = parseDateInput(bookingEndDate);
+
+    if (!startDate || !endDate || endDate < startDate) {
+      setBookingEndDate(selectedDate);
+      return;
+    }
+
+    const rangeDays = Math.floor((endDate - startDate) / MS_PER_DAY) + 1;
+    if (rangeDays > MAX_RANGE_DAYS) {
+      setBookingEndDate(addDaysToDateString(selectedDate, MAX_RANGE_DAYS - 1));
+    }
+  }, [bookingEndDate, selectedDate]);
 
   useEffect(() => {
     let isMounted = true;
@@ -301,13 +366,6 @@ export default function LabReservationPage() {
     );
   }
 
-  function applySampleVot(account) {
-    setProjectGrantVotNo(account.grantNumber);
-    setExpenseVot(account.votNumber);
-    setErrorMessage("");
-    setSuccessMessage("");
-  }
-
   const conflict = getSlotBooking(bookings, startTime, endTime);
   const timetableConflict = findLabTimetableConflict({
     labId: id,
@@ -332,29 +390,26 @@ export default function LabReservationPage() {
       ? getSlotStatus(conflict)
       : "available";
   const durationText = formatDuration(startTime, endTime);
+  const bookingDates = getBookingDatesInRange(selectedDate, bookingEndDate);
+  const bookingDayCount = Math.max(bookingDates.length, 1);
   const total =
-    getDurationHours(startTime, endTime) * (lab?.price_per_hour || 0);
+    getDurationHours(startTime, endTime) *
+    (lab?.price_per_hour || 0) *
+    bookingDayCount;
   const isPicRequester = requesterRole === "pic";
-  const votValidation = validateMockVotFunding({
-    projectGrantVotNo,
-    expenseVot,
-  });
-  const hasVotInput = Boolean(projectGrantVotNo.trim() || expenseVot.trim());
-  const paymentError =
-    hasVotInput && !votValidation.ok ? votValidation.error : "";
   const hasCompleteBookingFields = Boolean(
     selectedDate &&
+      bookingEndDate &&
       startTime &&
       endTime &&
       usage.trim() &&
-      projectGrantVotNo.trim() &&
-      expenseVot.trim() &&
+      votNumber.trim() &&
+      bookingDates.length > 0 &&
       (isPicRequester || token.trim()),
   );
   const canSubmit =
     validationStatus === "available" &&
     hasCompleteBookingFields &&
-    votValidation.ok &&
     !isSubmitting;
 
   async function handleSubmitBooking(event) {
@@ -389,8 +444,13 @@ export default function LabReservationPage() {
       return;
     }
 
-    if (!votValidation.ok) {
-      setErrorMessage(votValidation.error);
+    if (bookingDates.length === 0) {
+      setErrorMessage("Please select a valid booking range up to 2 weeks.");
+      return;
+    }
+
+    if (!votNumber.trim()) {
+      setErrorMessage("Please enter your VOT number.");
       return;
     }
 
@@ -419,14 +479,13 @@ export default function LabReservationPage() {
         body: JSON.stringify({
           labId: id,
           bookingDate: selectedDate,
+          bookingEndDate,
           startTime: `${startTime}:00`,
           endTime: `${endTime}:00`,
           picCode: isPicRequester ? "" : formattedToken,
           bookingReason: usage.trim(),
-          projectGrantVotNo: projectGrantVotNo.trim().toUpperCase(),
-          expenseVot: expenseVot.trim(),
-          grantNumber: projectGrantVotNo.trim().toUpperCase(),
-          votNumber: expenseVot.trim(),
+          grantNumber: "",
+          votNumber: votNumber.trim(),
         }),
       });
 
@@ -449,12 +508,13 @@ export default function LabReservationPage() {
       );
       setBookings((currentBookings) => [
         ...currentBookings,
-        responseData.booking,
+        ...(responseData.bookings || [responseData.booking]).filter(
+          (booking) => booking?.booking_date === selectedDate,
+        ),
       ]);
       setToken("");
       setUsage("");
-      setProjectGrantVotNo("");
-      setExpenseVot("");
+      setVotNumber("");
     } catch (error) {
       console.error(error);
       setErrorMessage("Unexpected error while booking a lab.");
@@ -718,24 +778,44 @@ export default function LabReservationPage() {
               <div className="grid gap-6 md:grid-cols-2">
                 <div>
                   <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
-                    Date
+                    Start Date
                   </p>
                   <Input
                     type="date"
                     value={selectedDate}
-                    onChange={(event) =>
-                      event.target.value && setSelectedDate(event.target.value)
-                    }
+                    onChange={(event) => {
+                      if (!event.target.value) return;
+                      setSelectedDate(event.target.value);
+                      if (bookingEndDate < event.target.value) {
+                        setBookingEndDate(event.target.value);
+                      }
+                    }}
                     min={getMinBookingDateString()}
                   />
                 </div>
 
                 <div>
                   <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
-                    Duration
+                    End Date
+                  </p>
+                  <Input
+                    type="date"
+                    value={bookingEndDate}
+                    onChange={(event) =>
+                      event.target.value && setBookingEndDate(event.target.value)
+                    }
+                    min={selectedDate}
+                    max={addDaysToDateString(selectedDate, MAX_RANGE_DAYS - 1)}
+                  />
+                </div>
+
+                <div>
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                    Booking Days
                   </p>
                   <div className="flex h-11 items-center rounded-xl border border-border-light bg-background-main px-3 text-text-muted">
-                    {durationText}
+                    {bookingDates.length} weekday
+                    {bookingDates.length === 1 ? "" : "s"} selected
                   </div>
                 </div>
 
@@ -854,6 +934,10 @@ export default function LabReservationPage() {
                       ? "End time must be after start time"
                       : "Time slot conflicts with an existing booking"}
               </div>
+              <p className="mt-3 text-sm text-text-muted">
+                Date ranges can cover up to 2 weeks. Weekend dates are skipped.
+                Daily duration: {durationText}.
+              </p>
             </div>
           </section>
 
@@ -884,81 +968,26 @@ export default function LabReservationPage() {
               06 Billing
             </p>
             <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
-                    Grant Number
-                  </p>
-                  <Input
-                    placeholder="Q.J130000.3851.19J91"
-                    value={projectGrantVotNo}
-                    onChange={(event) => {
-                      const nextValue = event.target.value.toUpperCase();
-                      setProjectGrantVotNo(nextValue);
-                      if (!nextValue.trim()) {
-                        setExpenseVot("");
-                      }
-                    }}
-                  />
-                </div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                VOT Number
+              </p>
+              <Input
+                placeholder="Enter VOT number"
+                value={votNumber}
+                onChange={(event) => setVotNumber(event.target.value)}
+              />
 
-                <div>
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
-                    VOT Number
-                  </p>
-                  <select
-                    value={expenseVot}
-                    onChange={(event) => setExpenseVot(event.target.value)}
-                    disabled={!projectGrantVotNo.trim()}
-                    className="h-11 w-full rounded-xl border border-border-light bg-white px-3 text-text-main outline-none transition-colors focus:border-primary disabled:cursor-not-allowed disabled:bg-background-main disabled:text-text-muted"
-                  >
-                    <option value="">Select VOT number</option>
-                    {MOCK_VOT_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div className="mt-4">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Total Price
+                </p>
+                <Input value={formatRmFromUsd(total)} readOnly />
               </div>
 
-              {projectGrantVotNo.trim() && expenseVot.trim() ? (
-                <div className="mt-4">
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
-                    Total Price
-                  </p>
-                  <Input value={formatRmFromUsd(total)} readOnly />
-                </div>
-              ) : null}
-
-              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => applySampleVot(MOCK_VOT_ACCOUNTS.sufficient)}
-                  className="w-auto text-sm"
-                >
-                  Use sample with sufficient funds
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => applySampleVot(MOCK_VOT_ACCOUNTS.insufficient)}
-                  className="w-auto text-sm"
-                >
-                  Use sample with insufficient funds
-                </Button>
-              </div>
-
-              {paymentError ? (
-                <p className="mt-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
-                  {paymentError}
-                </p>
-              ) : (
-                <p className="mt-3 text-sm text-text-muted">
-                  Payment will be processed once the request has been approved.
-                </p>
-              )}
+              <p className="mt-3 text-sm text-text-muted">
+                Any VOT number is accepted for now. Payment will be processed
+                once the request has been approved.
+              </p>
             </div>
           </section>
 

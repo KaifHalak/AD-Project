@@ -6,12 +6,57 @@ import {
   verifyPicToken,
 } from "@/lib/bookingTokenAuth";
 import {
+  formatDateInput,
   isBookingDateStringAllowed,
   isOfficeTimeRange,
+  isWeekendDate,
+  parseDateInput,
   toMinutes,
 } from "@/lib/bookingConstraints";
 import { findLabTimetableConflict } from "@/lib/mockTimetable";
-import { validateMockVotFunding } from "@/lib/mockVotFunding";
+
+const MAX_RANGE_DAYS = 14;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function getBookingDates(startDateString, endDateString) {
+  const startDate = parseDateInput(startDateString);
+  const endDate = parseDateInput(endDateString || startDateString);
+
+  if (!startDate || !endDate || endDate < startDate) {
+    return { error: "Please select a valid booking date range." };
+  }
+
+  const rangeDays = Math.floor((endDate - startDate) / MS_PER_DAY) + 1;
+  if (rangeDays > MAX_RANGE_DAYS) {
+    return { error: "Bookings can cover a maximum of 2 weeks." };
+  }
+
+  const dates = [];
+  const cursor = new Date(startDate);
+
+  while (cursor <= endDate) {
+    if (!isWeekendDate(cursor)) {
+      const dateString = formatDateInput(cursor);
+
+      if (!isBookingDateStringAllowed(dateString)) {
+        return {
+          error:
+            "Bookings must be made at least 7 days in advance on weekdays.",
+        };
+      }
+
+      dates.push(dateString);
+    }
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  if (dates.length === 0) {
+    return { error: "Please select at least one weekday for the booking." };
+  }
+
+  return { dates };
+}
 
 export async function POST(request) {
   try {
@@ -27,13 +72,11 @@ export async function POST(request) {
     const body = await request.json();
     const labId = body?.labId;
     const bookingDate = body?.bookingDate;
+    const bookingEndDate = body?.bookingEndDate || body?.endBookingDate;
     const startTime = body?.startTime;
     const endTime = body?.endTime;
     const picCode = body?.picCode?.trim()?.toUpperCase();
     const bookingReason = (body?.bookingReason || body?.usage || "").trim();
-    const grantNumber = String(body?.grantNumber || body?.projectGrantVotNo || "")
-      .trim()
-      .toUpperCase();
     const votNumber = String(body?.votNumber || body?.expenseVot || "").trim();
 
     if (!labId || !bookingDate || !startTime || !endTime) {
@@ -43,15 +86,14 @@ export async function POST(request) {
       );
     }
 
-    if (!isBookingDateStringAllowed(bookingDate)) {
+    const bookingDatesResult = getBookingDates(bookingDate, bookingEndDate);
+    if (bookingDatesResult.error) {
       return NextResponse.json(
-        {
-          error:
-            "Bookings must be made at least 7 days in advance on weekdays.",
-        },
+        { error: bookingDatesResult.error },
         { status: 400 },
       );
     }
+    const bookingDates = bookingDatesResult.dates;
 
     if (!isOfficeTimeRange(startTime, endTime)) {
       return NextResponse.json(
@@ -67,15 +109,10 @@ export async function POST(request) {
       );
     }
 
-    const votValidation = validateMockVotFunding({
-      grantNumber,
-      votNumber,
-    });
-
-    if (!votValidation.ok) {
+    if (!votNumber) {
       return NextResponse.json(
-        { error: votValidation.error },
-        { status: votValidation.status },
+        { error: "Please enter your VOT number." },
+        { status: 400 },
       );
     }
 
@@ -130,31 +167,33 @@ export async function POST(request) {
       0,
       (toMinutes(endTime) - toMinutes(startTime)) / 60,
     );
-    const totalPrice = Number(
+    const dailyPrice = Number(
       (durationHours * Number(lab.price_per_hour || 0)).toFixed(2),
     );
 
-    const timetableConflict = findLabTimetableConflict({
-      labId,
-      date: bookingDate,
-      startTime,
-      endTime,
-    });
+    for (const date of bookingDates) {
+      const timetableConflict = findLabTimetableConflict({
+        labId,
+        date,
+        startTime,
+        endTime,
+      });
 
-    if (timetableConflict) {
-      return NextResponse.json(
-        {
-          error: `Time slot clashes with scheduled class: ${timetableConflict.title}.`,
-        },
-        { status: 409 },
-      );
+      if (timetableConflict) {
+        return NextResponse.json(
+          {
+            error: `${date} clashes with scheduled class: ${timetableConflict.title}.`,
+          },
+          { status: 409 },
+        );
+      }
     }
 
     const { data: conflict, error: conflictError } = await admin
       .from("lab_bookings")
-      .select("id")
+      .select("id, booking_date")
       .eq("lab_id", labId)
-      .eq("booking_date", bookingDate)
+      .in("booking_date", bookingDates)
       .lt("start_time", endTime)
       .gt("end_time", startTime)
       .in("status", ["pending", "approved"])
@@ -171,27 +210,30 @@ export async function POST(request) {
 
     if (conflict) {
       return NextResponse.json(
-        { error: "Time slot not available. Please select another time." },
+        {
+          error: `${conflict.booking_date} is not available. Please select another date or time.`,
+        },
         { status: 409 },
       );
     }
 
-    const { data: booking, error: insertError } = await admin
+    const insertRows = bookingDates.map((date) => ({
+      lab_id: labId,
+      booking_date: date,
+      start_time: startTime,
+      end_time: endTime,
+      status: "pending",
+      user_id: requester.id,
+      booking_reason: bookingReason,
+      grant_number: "",
+      vot_number: votNumber,
+      total_price: dailyPrice,
+    }));
+
+    const { data: bookings, error: insertError } = await admin
       .from("lab_bookings")
-      .insert({
-        lab_id: labId,
-        booking_date: bookingDate,
-        start_time: startTime,
-        end_time: endTime,
-        status: "pending",
-        user_id: requester.id,
-        booking_reason: bookingReason,
-        grant_number: grantNumber,
-        vot_number: votNumber,
-        total_price: totalPrice,
-      })
-      .select("*")
-      .maybeSingle();
+      .insert(insertRows)
+      .select("*");
 
     if (insertError) {
       console.error("Error creating lab booking:", insertError);
@@ -202,7 +244,14 @@ export async function POST(request) {
     }
 
     return NextResponse.json(
-      { message: "Lab booking submitted. Waiting for approval.", booking },
+      {
+        message:
+          bookingDates.length === 1
+            ? "Lab booking submitted. Waiting for approval."
+            : `${bookingDates.length} lab bookings submitted. Waiting for approval.`,
+        booking: bookings?.[0] || null,
+        bookings: bookings || [],
+      },
       { status: 201 },
     );
   } catch (error) {

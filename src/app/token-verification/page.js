@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,26 @@ function formatDateTime(dateISOString) {
 }
 
 export default function TokenVerificationPage() {
+  return (
+    <Suspense fallback={<TokenVerificationLoading />}>
+      <TokenVerificationContent />
+    </Suspense>
+  );
+}
+
+function TokenVerificationLoading() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background-main px-4 py-10">
+      <Card className="w-full max-w-xl border-[3px] md:p-10">
+        <p className="text-center text-sm text-text-muted">
+          Checking verification status...
+        </p>
+      </Card>
+    </main>
+  );
+}
+
+function TokenVerificationContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTimerRef = useRef(null);

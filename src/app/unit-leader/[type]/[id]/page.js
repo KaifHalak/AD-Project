@@ -299,7 +299,7 @@ export default function UnitLeaderRequestDetailPage() {
               />
               <p className="mt-2 text-xs text-gray-500">
                 {data.can_review
-                  ? "Leave this blank to use the default unit leader decision remark."
+                  ? 'Default if blank: "Approved by Unit Leader" when approving, or "Rejected by Unit Leader" when rejecting.'
                   : data.unit_leader_remarks || "No remarks provided."}
               </p>
             </div>

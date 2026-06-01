@@ -378,7 +378,7 @@ export default function RequestDetailPage() {
               />
               <p className="mt-2 text-xs text-gray-500">
                 {data.can_review
-                  ? "Leave this blank to use the default PPMU decision remark."
+                  ? 'Default if blank: "Approved by PPMU" when approving, or "Rejected by PPMU" when rejecting.'
                   : data.ppmu_remarks || "No remarks provided."}
               </p>
             </div>

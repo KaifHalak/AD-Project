@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { getCurrentSession, getCurrentUser } from "@/lib/supabase/auth";
 import { getRecordByColumn } from "@/lib/supabase/db";
 import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
@@ -27,13 +27,59 @@ import {
   findEquipmentTimetableConflict,
   getEquipmentTimetableEvents,
 } from "@/lib/mockTimetable";
-import {
-  MOCK_VOT_ACCOUNTS,
-  MOCK_VOT_OPTIONS,
-  validateMockVotFunding,
-} from "@/lib/mockVotFunding";
+
+const MAX_RANGE_DAYS = 14;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function addDaysToDate(date, days) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+
+function getBookingDatesInRange(startDate, endDate) {
+  if (!startDate || !endDate || endDate < startDate) {
+    return [];
+  }
+
+  const rangeDays = Math.floor((endDate - startDate) / MS_PER_DAY) + 1;
+  if (rangeDays > MAX_RANGE_DAYS) {
+    return [];
+  }
+
+  const dates = [];
+  const cursor = new Date(startDate);
+
+  while (cursor <= endDate) {
+    if (!isWeekendDate(cursor)) {
+      dates.push(formatDateInput(cursor));
+    }
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return dates;
+}
 
 export default function EquipmentBookingPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-full bg-background-main px-3 py-4 md:px-6 md:py-6">
+          <section className="rounded-2xl border border-border-light bg-background-main p-5 md:p-8">
+            <p className="rounded-lg border border-border-light bg-white px-3 py-4 text-sm text-text-muted">
+              Loading equipment...
+            </p>
+          </section>
+        </main>
+      }
+    >
+      <EquipmentBookingContent />
+    </Suspense>
+  );
+}
+
+function EquipmentBookingContent() {
   const { id } = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -43,13 +89,15 @@ export default function EquipmentBookingPage() {
   const [currentDate, setCurrentDate] = useState(
     parseDateInput(getDefaultBookingDateString()) || getMinBookingDate(),
   );
+  const [bookingEndDate, setBookingEndDate] = useState(
+    parseDateInput(getDefaultBookingDateString()) || getMinBookingDate(),
+  );
 
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("11:00");
 
   const [usage, setUsage] = useState("");
-  const [projectGrantVotNo, setProjectGrantVotNo] = useState("");
-  const [expenseVot, setExpenseVot] = useState("");
+  const [votNumber, setVotNumber] = useState("");
   const [token, setToken] = useState("");
   const [requesterRole, setRequesterRole] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -81,13 +129,6 @@ export default function EquipmentBookingPage() {
     setCurrentDate((current) => getAdjacentAllowedBookingDate(current, offset));
   };
 
-  const applySampleVot = (account) => {
-    setProjectGrantVotNo(account.grantNumber);
-    setExpenseVot(account.votNumber);
-    setErrorMessage("");
-    setSuccessMessage("");
-  };
-
   useEffect(() => {
     const rescheduleFrom = searchParams.get("rescheduleFrom") || "";
     const prefillDate = searchParams.get("date") || "";
@@ -102,6 +143,7 @@ export default function EquipmentBookingPage() {
       const parsed = parseDateInput(prefillDate);
       if (parsed) {
         setCurrentDate(parsed);
+        setBookingEndDate(parsed);
       }
     }
 
@@ -179,6 +221,23 @@ export default function EquipmentBookingPage() {
 
     setLocalDateWarning("");
   }, [currentDate]);
+
+  useEffect(() => {
+    if (!bookingEndDate || Number.isNaN(bookingEndDate.getTime())) {
+      setBookingEndDate(currentDate);
+      return;
+    }
+
+    if (bookingEndDate < currentDate) {
+      setBookingEndDate(currentDate);
+      return;
+    }
+
+    const rangeDays = Math.floor((bookingEndDate - currentDate) / MS_PER_DAY) + 1;
+    if (rangeDays > MAX_RANGE_DAYS) {
+      setBookingEndDate(addDaysToDate(currentDate, MAX_RANGE_DAYS - 1));
+    }
+  }, [bookingEndDate, currentDate]);
 
   // ===== get equipment =====
   useEffect(() => {
@@ -259,10 +318,15 @@ export default function EquipmentBookingPage() {
     return "available";
   };
 
+  const selectedDateString = formatDateForDB(currentDate);
+  const bookingEndDateString = formatDateForDB(bookingEndDate);
+  const bookingDates = getBookingDatesInRange(currentDate, bookingEndDate);
+  const bookingDayCount = Math.max(bookingDates.length, 1);
+
   //duration / total
   const durationMinutes = toMinutes(endTime) - toMinutes(startTime);
   const duration = Math.max(0, durationMinutes / 60);
-  const total = duration * equipment.price_per_hour;
+  const total = duration * equipment.price_per_hour * bookingDayCount;
 
   //  check availability
   const isTimeAvailable = () => {
@@ -282,7 +346,6 @@ export default function EquipmentBookingPage() {
   };
 
   const available = isTimeAvailable();
-  const selectedDateString = formatDateForDB(currentDate);
   const timetableConflict = findEquipmentTimetableConflict({
     equipmentId: id,
     date: selectedDateString,
@@ -306,26 +369,19 @@ export default function EquipmentBookingPage() {
           ? "available"
           : "conflict";
   const isPicRequester = requesterRole === "pic";
-  const votValidation = validateMockVotFunding({
-    projectGrantVotNo,
-    expenseVot,
-  });
-  const hasVotInput = Boolean(projectGrantVotNo.trim() || expenseVot.trim());
-  const paymentError =
-    hasVotInput && !votValidation.ok ? votValidation.error : "";
   const hasCompleteBookingFields = Boolean(
     selectedDateString &&
+      bookingEndDateString &&
       startTime &&
       endTime &&
       usage.trim() &&
-      projectGrantVotNo.trim() &&
-      expenseVot.trim() &&
+      votNumber.trim() &&
+      bookingDates.length > 0 &&
       (isPicRequester || token.trim()),
   );
   const canSubmit =
     validationStatus === "available" &&
     hasCompleteBookingFields &&
-    votValidation.ok &&
     !isSubmitting;
 
   //handle booking
@@ -364,8 +420,13 @@ export default function EquipmentBookingPage() {
         return;
       }
 
-      if (!votValidation.ok) {
-        setErrorMessage(votValidation.error);
+      if (bookingDates.length === 0) {
+        setErrorMessage("Please select a valid booking range up to 2 weeks.");
+        return;
+      }
+
+      if (!votNumber.trim()) {
+        setErrorMessage("Please enter your VOT number.");
         return;
       }
 
@@ -391,14 +452,13 @@ export default function EquipmentBookingPage() {
         body: JSON.stringify({
           equipmentId: id,
           bookingDate: selectedDateString,
+          bookingEndDate: bookingEndDateString,
           startTime: `${startTime}:00`,
           endTime: `${endTime}:00`,
           picCode: isPicRequester ? "" : formattedToken,
           bookingReason: usage.trim(),
-          projectGrantVotNo: projectGrantVotNo.trim().toUpperCase(),
-          expenseVot: expenseVot.trim(),
-          grantNumber: projectGrantVotNo.trim().toUpperCase(),
-          votNumber: expenseVot.trim(),
+          grantNumber: "",
+          votNumber: votNumber.trim(),
         }),
       });
 
@@ -421,12 +481,13 @@ export default function EquipmentBookingPage() {
       );
       setBookings((currentBookings) => [
         ...currentBookings,
-        bookingData.booking,
+        ...(bookingData.bookings || [bookingData.booking]).filter(
+          (booking) => booking?.booking_date === selectedDateString,
+        ),
       ]);
       setToken("");
       setUsage("");
-      setProjectGrantVotNo("");
-      setExpenseVot("");
+      setVotNumber("");
     } catch (err) {
       console.error(err);
       setErrorMessage("Unexpected error while booking equipment.");
@@ -642,19 +703,49 @@ export default function EquipmentBookingPage() {
             <div className="grid gap-6 md:grid-cols-2">
               <div>
                 <p className="mb-1 text-xs font-semibold tracking-wide text-text-muted">
-                  DATE
+                  START DATE
                 </p>
-                <div className="rounded-xl border border-border-light bg-background-main px-3 py-3 text-text-main">
-                  {formatDate(currentDate)}
-                </div>
+                <Input
+                  type="date"
+                  value={selectedDateString}
+                  onChange={(event) => {
+                    if (!event.target.value) return;
+                    const nextDate = parseDateInput(event.target.value);
+                    if (!nextDate) return;
+                    setCurrentDate(nextDate);
+                    if (bookingEndDate < nextDate) {
+                      setBookingEndDate(nextDate);
+                    }
+                  }}
+                  min={getMinBookingDateString()}
+                />
               </div>
 
               <div>
                 <p className="mb-1 text-xs font-semibold tracking-wide text-text-muted">
-                  DURATION
+                  END DATE
+                </p>
+                <Input
+                  type="date"
+                  value={bookingEndDateString}
+                  onChange={(event) => {
+                    const nextDate = parseDateInput(event.target.value);
+                    if (nextDate) {
+                      setBookingEndDate(nextDate);
+                    }
+                  }}
+                  min={selectedDateString}
+                  max={formatDateForDB(addDaysToDate(currentDate, MAX_RANGE_DAYS - 1))}
+                />
+              </div>
+
+              <div>
+                <p className="mb-1 text-xs font-semibold tracking-wide text-text-muted">
+                  BOOKING DAYS
                 </p>
                 <div className="rounded-xl border border-border-light bg-background-main px-3 py-3 text-text-main">
-                  {duration}h
+                  {bookingDates.length} weekday
+                  {bookingDates.length === 1 ? "" : "s"} selected
                 </div>
               </div>
 
@@ -779,6 +870,10 @@ export default function EquipmentBookingPage() {
                         ? "Time must be within office hours (08:00 to 18:00)"
                         : "Time slot not available"}
               </div>
+              <p className="mt-3 text-sm text-text-muted">
+                Date ranges can cover up to 2 weeks. Weekend dates are skipped.
+                Daily duration: {duration}h.
+              </p>
             </div>
           </div>
 
@@ -798,81 +893,26 @@ export default function EquipmentBookingPage() {
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-text-muted">
               04 Billing
             </p>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
-                  Grant Number
-                </p>
-                <Input
-                  placeholder="Q.J130000.3851.19J91"
-                  value={projectGrantVotNo}
-                  onChange={(event) => {
-                    const nextValue = event.target.value.toUpperCase();
-                    setProjectGrantVotNo(nextValue);
-                    if (!nextValue.trim()) {
-                      setExpenseVot("");
-                    }
-                  }}
-                />
-              </div>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+              VOT Number
+            </p>
+            <Input
+              placeholder="Enter VOT number"
+              value={votNumber}
+              onChange={(event) => setVotNumber(event.target.value)}
+            />
 
-              <div>
-                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
-                  VOT Number
-                </p>
-                <select
-                  value={expenseVot}
-                  onChange={(event) => setExpenseVot(event.target.value)}
-                  disabled={!projectGrantVotNo.trim()}
-                  className="h-11 w-full rounded-xl border border-border-light bg-white px-3 text-text-main outline-none transition-colors focus:border-primary disabled:cursor-not-allowed disabled:bg-background-main disabled:text-text-muted"
-                >
-                  <option value="">Select VOT number</option>
-                  {MOCK_VOT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div className="mt-4">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                Total Price
+              </p>
+              <Input value={formatRmFromUsd(total)} readOnly />
             </div>
 
-            {projectGrantVotNo.trim() && expenseVot.trim() ? (
-              <div className="mt-4">
-                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
-                  Total Price
-                </p>
-                <Input value={formatRmFromUsd(total)} readOnly />
-              </div>
-            ) : null}
-
-            <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => applySampleVot(MOCK_VOT_ACCOUNTS.sufficient)}
-                className="w-auto text-sm"
-              >
-                Use sample with sufficient funds
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => applySampleVot(MOCK_VOT_ACCOUNTS.insufficient)}
-                className="w-auto text-sm"
-              >
-                Use sample with insufficient funds
-              </Button>
-            </div>
-
-            {paymentError ? (
-              <p className="mt-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
-                {paymentError}
-              </p>
-            ) : (
-              <p className="mt-3 text-sm text-text-muted">
-                Payment will be processed once the request has been approved.
-              </p>
-            )}
+            <p className="mt-3 text-sm text-text-muted">
+              Any VOT number is accepted for now. Payment will be processed once
+              the request has been approved.
+            </p>
           </div>
 
           {!isPicRequester ? (
