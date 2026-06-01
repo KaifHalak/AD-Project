@@ -7,6 +7,7 @@ import { ArrowLeft, Download, X } from "lucide-react";
 import Loader from "@/components/loader";
 import { Button } from "@/components/ui/button";
 import { formatRmFromUsd } from "@/lib/currency";
+import { downloadQuotationPdf } from "@/lib/quotationPdf";
 import { getCurrentSession } from "@/lib/supabase/auth";
 
 function formatDate(dateString) {
@@ -158,6 +159,14 @@ export default function BookingRecordDetailPage() {
     }
   }
 
+  function handleDownloadQuotation() {
+    const quotationPayload = booking?.quotation?.quotation_payload;
+
+    if (!quotationPayload) return;
+
+    downloadQuotationPdf(quotationPayload);
+  }
+
   if (isLoading) {
     return <Loader text="Loading booking details..." />;
   }
@@ -233,7 +242,10 @@ export default function BookingRecordDetailPage() {
             <Field label="User Name" value={booking.user_name} />
             <Field label="User Email" value={booking.user_email} />
             <Field label="User Role" value={booking.user_role} />
-            <Field label="User ID" value={booking.requester_identifier || "-"} />
+            <Field
+              label="User ID"
+              value={booking.requester_identifier || "-"}
+            />
             <Field label="Faculty" value={booking.requester_faculty || "-"} />
             <Field
               label="Contact Number"
@@ -277,11 +289,26 @@ export default function BookingRecordDetailPage() {
           </div>
         </Section>
 
-        <Section title="Invoice">
+        <Section title="Quotation">
+          {booking.quotation?.quotation_payload ? (
+            <p className="mb-3 text-sm text-text-muted">
+              Quotation {booking.quotation.quotation_number} is available for
+              download.
+            </p>
+          ) : (
+            <p className="mb-3 text-sm text-text-muted">
+              No saved quotation is available for this booking.
+            </p>
+          )}
           <button
             type="button"
-            disabled
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-white opacity-60"
+            disabled={!booking.quotation?.quotation_payload}
+            onClick={handleDownloadQuotation}
+            className={`inline-flex h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold text-white ${
+              booking.quotation?.quotation_payload
+                ? "bg-primary transition-colors hover:bg-primary-hover"
+                : "cursor-not-allowed bg-primary opacity-60"
+            }`}
           >
             <Download className="h-4 w-4" />
             Download PDF Quotation

@@ -159,6 +159,20 @@ async function getSourceBooking(admin, parsedBooking) {
   return { data, error };
 }
 
+async function getQuotation(admin, parsedBooking, userId) {
+  const { data, error } = await admin
+    .from("booking_quotations")
+    .select("id, quotation_number, quotation_date, quotation_payload")
+    .eq("booking_type", parsedBooking.bookingType)
+    .eq("user_id", userId)
+    .contains("booking_ids", [parsedBooking.sourceId])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return { data, error };
+}
+
 export async function GET(request, { params }) {
   try {
     const accessToken = getAccessTokenFromHeader(request);
@@ -206,6 +220,7 @@ export async function GET(request, { params }) {
       enrichedBooking,
       sourceBookingResult,
       processResult,
+      quotationResult,
     ] = await Promise.all([
       enrichBooking(admin, booking),
       getSourceBooking(admin, parsedBooking),
@@ -214,6 +229,7 @@ export async function GET(request, { params }) {
         .select("*")
         .eq("booking_type", parsedBooking.bookingType)
         .eq("booking_id", parsedBooking.sourceId),
+      getQuotation(admin, parsedBooking, profile.id),
     ]);
 
     if (sourceBookingResult.error) {
@@ -226,6 +242,10 @@ export async function GET(request, { params }) {
         { error: "Could not fetch booking review details." },
         { status: 500 },
       );
+    }
+
+    if (quotationResult.error) {
+      console.error("Error fetching booking quotation:", quotationResult.error);
     }
 
     const unitLeaderProcess = getLatestProcessByRole(
@@ -304,6 +324,13 @@ export async function GET(request, { params }) {
           ppmu_name: ppmu?.username || "N/A",
           ppmu_email: ppmu?.email || "N/A",
           ppmu_role: ppmu?.role || "N/A",
+          quotation: quotationResult.data
+            ? {
+                quotation_number: quotationResult.data.quotation_number,
+                quotation_date: quotationResult.data.quotation_date,
+                quotation_payload: quotationResult.data.quotation_payload,
+              }
+            : null,
           ...displayStatus,
         },
       },

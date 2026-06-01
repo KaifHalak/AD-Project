@@ -9,6 +9,10 @@ import { getRecordByColumn } from "@/lib/supabase/db";
 import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
 import { formatRmFromUsd } from "@/lib/currency";
 import {
+  BOOKING_AGREEMENT_TEXT,
+  downloadQuotationPdf,
+} from "@/lib/quotationPdf";
+import {
   END_TIME_OPTIONS,
   START_TIME_OPTIONS,
   getAdjacentAllowedBookingDate,
@@ -202,6 +206,7 @@ function LabReservationContent() {
   const [picDetailsMessage, setPicDetailsMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showAgreementModal, setShowAgreementModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [localDateWarning, setLocalDateWarning] = useState("");
@@ -489,8 +494,91 @@ function LabReservationContent() {
     hasCompleteBookingFields &&
     !isSubmitting;
 
-  async function handleSubmitBooking(event) {
+  function getQuotationPayload(quotationNumber = "DRAFT") {
+    return {
+      bookingType: "Lab Booking",
+      quotationNumber,
+      resourceName: lab?.name || "Lab",
+      resourceId: lab?.id || id,
+      requester: requesterProfile || {},
+      requesterIdentifier: requesterIdentifier.trim(),
+      requesterFaculty: requesterFaculty.trim(),
+      requesterContact: requesterContact.trim(),
+      pic: picDetails || (isPicRequester ? requesterProfile : {}),
+      picCode: isPicRequester ? "PIC account - no token required" : token.trim().toUpperCase(),
+      startDate: selectedDate,
+      endDate: bookingEndDate,
+      startTime,
+      endTime,
+      bookingDayCount,
+      durationHours: getDurationHours(startTime, endTime),
+      pricePerHour: lab?.price_per_hour || 0,
+      totalPrice: total,
+      votNumber: votNumber.trim(),
+      purpose: usage.trim(),
+      resourceLocation: lab?.location || "",
+      resourceStatus: lab?.status || "",
+      resourceCourse: lab?.course || "",
+      resourceDescription: lab?.description || "",
+    };
+  }
+
+  function handleMockQuotationDownload() {
+    downloadQuotationPdf(getQuotationPayload("DRAFT"));
+  }
+
+  async function saveQuotation({ accessToken, responseData, quotationPayload }) {
+    const bookingRows = responseData.bookings || [responseData.booking];
+    const bookingIds = bookingRows
+      .map((booking) => Number(booking?.id))
+      .filter((bookingId) => Number.isInteger(bookingId) && bookingId > 0);
+
+    if (!bookingIds.length) {
+      return { quotationPayload };
+    }
+
+    const quotationResponse = await fetch("/api/booking-quotations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        bookingType: "lab",
+        primaryBookingId: Number(responseData.booking.id),
+        bookingIds,
+        quotationNumber: quotationPayload.quotationNumber,
+        quotationPayload,
+      }),
+    });
+    const quotationData = await quotationResponse.json();
+
+    if (!quotationResponse.ok) {
+      return {
+        error: quotationData?.error || "Could not save quotation.",
+        quotationPayload,
+      };
+    }
+
+    return {
+      quotationPayload:
+        quotationData?.quotation?.quotation_payload || quotationPayload,
+    };
+  }
+
+  function handleSubmitBooking(event) {
     event.preventDefault();
+
+    if (!canSubmit) {
+      return;
+    }
+
+    setErrorMessage("");
+    setSuccessMessage("");
+    setShowAgreementModal(true);
+  }
+
+  async function submitBookingRequest() {
 
     if (isSubmitting) {
       return;
@@ -500,6 +588,7 @@ function LabReservationContent() {
     setSuccessMessage("");
 
     const formattedToken = token.trim().toUpperCase();
+    setShowAgreementModal(false);
 
     if (validationStatus !== "available") {
       setErrorMessage(
@@ -595,6 +684,22 @@ function LabReservationContent() {
       setSuccessMessage(
         responseData.message || "Lab booking submitted. Waiting for approval.",
       );
+      const quotationPayload = getQuotationPayload(
+        `QTN-LAB-${responseData.booking.id}`,
+      );
+      const quotationSaveResult = await saveQuotation({
+        accessToken,
+        responseData,
+        quotationPayload,
+      });
+
+      if (quotationSaveResult.error) {
+        setSuccessMessage(
+          `${responseData.message || "Lab booking submitted. Waiting for approval."} ${quotationSaveResult.error}`,
+        );
+      }
+
+      downloadQuotationPdf(quotationSaveResult.quotationPayload);
       setBookings((currentBookings) => [
         ...currentBookings,
         ...(responseData.bookings || [responseData.booking]).filter(
@@ -607,6 +712,7 @@ function LabReservationContent() {
       setRequesterIdentifier("");
       setRequesterFaculty("");
       setRequesterContact("");
+      setShowAgreementModal(false);
     } catch (error) {
       console.error(error);
       setErrorMessage("Unexpected error while booking a lab.");
@@ -1240,6 +1346,14 @@ function LabReservationContent() {
             </div>
 
             <div className="flex flex-col gap-3 md:items-end">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleMockQuotationDownload}
+                className="md:w-auto"
+              >
+                Download Mock Quotation PDF
+              </Button>
               <Button type="submit" disabled={!canSubmit} className="md:w-auto">
                 {isSubmitting
                   ? "Submitting..."
@@ -1254,6 +1368,83 @@ function LabReservationContent() {
             </div>
           </div>
         </form>
+
+        {showAgreementModal ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+            <div className="max-h-full w-full max-w-2xl overflow-y-auto rounded-2xl border border-border-light bg-white p-5 shadow-xl md:p-6">
+              <h2 className="text-xl font-semibold text-text-main">
+                Confirm Agreement
+              </h2>
+
+              <div className="mt-5 grid gap-3 text-sm md:grid-cols-2">
+                {[
+                  ["Requester", requesterProfile?.username || "-"],
+                  ["Resource", lab.name],
+                  ["Request Type", "Lab Booking"],
+                  [
+                    "Date Range",
+                    selectedDate === bookingEndDate
+                      ? selectedDate
+                      : `${selectedDate} to ${bookingEndDate}`,
+                  ],
+                  [
+                    "Booking Days",
+                    `${bookingDates.length} weekday${
+                      bookingDates.length === 1 ? "" : "s"
+                    }`,
+                  ],
+                  ["Time", `${startTime} - ${endTime}`],
+                  ["VOT Number", votNumber || "-"],
+                  ["PIC", picDetails?.username || "-"],
+                  ["Estimated Total", formatRmFromUsd(total)],
+                ].map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="rounded-xl border border-border-light bg-background-main p-3"
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                      {label}
+                    </p>
+                    <p className="mt-1 break-words font-medium text-text-main">
+                      {value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 rounded-xl border border-border-light bg-background-main p-3 text-sm">
+                <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Purpose
+                </p>
+                <p className="mt-1 text-text-main">{usage || "-"}</p>
+              </div>
+
+              <p className="mt-4 rounded-xl border border-primary/20 bg-background-main p-4 text-sm text-text-main">
+                {BOOKING_AGREEMENT_TEXT}
+              </p>
+
+              <div className="mt-6 flex flex-col-reverse gap-3 md:flex-row md:justify-end">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setShowAgreementModal(false)}
+                  className="md:w-auto"
+                  disabled={isSubmitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={submitBookingRequest}
+                  className="md:w-auto"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? "Submitting..." : "I Agree"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </section>
     </main>
   );
