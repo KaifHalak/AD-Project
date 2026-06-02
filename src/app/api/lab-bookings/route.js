@@ -57,6 +57,7 @@ function getBookingDates(startDateString, endDateString) {
 
   return { dates };
 }
+import { sendBookingSubmittedEmail } from "@/lib/bookingDecisionEmail";
 
 export async function POST(request) {
   try {
@@ -158,7 +159,7 @@ export async function POST(request) {
     const admin = getSupabaseAdminClient();
     const { data: lab, error: labError } = await admin
       .from("labs")
-      .select("id, status, price_per_hour")
+      .select("id, name, status, price_per_hour")
       .eq("id", labId)
       .maybeSingle();
 
@@ -256,14 +257,28 @@ export async function POST(request) {
       );
     }
 
+    const notification = await sendBookingSubmittedEmail({
+      booking: {
+        ...booking,
+        booking_type: "lab",
+        item_id: labId,
+        item_name: lab.name,
+      },
+      requester,
+    });
+
     return NextResponse.json(
       {
+       
         message:
           bookingDates.length === 1
             ? "Lab booking submitted. Waiting for approval."
             : `${bookingDates.length} lab bookings submitted. Waiting for approval.`,
         booking: bookings?.[0] || null,
-        bookings: bookings || [],
+        bookings:
+        bookings || [],
+     ,
+        notification,
       },
       { status: 201 },
     );

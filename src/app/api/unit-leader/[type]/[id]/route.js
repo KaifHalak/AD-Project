@@ -4,6 +4,7 @@ import {
   getAccessTokenFromHeader,
   getRequesterProfile,
 } from "@/lib/bookingTokenAuth";
+import { sendBookingDecisionEmail } from "@/lib/bookingDecisionEmail";
 
 const ALLOWED_TYPES = new Set(["lab", "equipment"]);
 const ALLOWED_DECISIONS = new Set(["approved", "rejected"]);
@@ -294,11 +295,19 @@ export async function POST(request, { params }) {
       );
     }
 
+    const notification = await sendBookingDecisionEmail({
+      admin,
+      type: parsed.type,
+      id: parsed.id,
+      processRecord,
+    });
+
     return NextResponse.json(
       {
         message:
           decision === "approved" ? "Booking approved." : "Booking rejected.",
         process: processRecord,
+        notification,
       },
       { status: 201 },
     );
