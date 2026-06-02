@@ -212,7 +212,11 @@ function EquipmentBookingContent() {
         return;
       }
 
-      if (!formattedToken || formattedToken.length !== 6 || !requesterProfile?.id) {
+      if (
+        !formattedToken ||
+        formattedToken.length !== 6 ||
+        !requesterProfile?.id
+      ) {
         return;
       }
 
@@ -312,7 +316,8 @@ function EquipmentBookingContent() {
       return;
     }
 
-    const rangeDays = Math.floor((bookingEndDate - currentDate) / MS_PER_DAY) + 1;
+    const rangeDays =
+      Math.floor((bookingEndDate - currentDate) / MS_PER_DAY) + 1;
     if (rangeDays > MAX_RANGE_DAYS) {
       setBookingEndDate(addDaysToDate(currentDate, MAX_RANGE_DAYS - 1));
     }
@@ -438,28 +443,28 @@ function EquipmentBookingContent() {
     ? "invalid"
     : isEquipmentUnderMaintenance
       ? "maintenance"
-    : !isDateValid
-    ? "date_invalid"
-    : !isOfficeRangeValid
-      ? "office_hours_invalid"
-      : timetableConflict
-        ? "class"
-        : available
-          ? "available"
-          : "conflict";
+      : !isDateValid
+        ? "date_invalid"
+        : !isOfficeRangeValid
+          ? "office_hours_invalid"
+          : timetableConflict
+            ? "class"
+            : available
+              ? "available"
+              : "conflict";
   const isPicRequester = requesterRole === "pic";
   const hasCompleteBookingFields = Boolean(
     selectedDateString &&
-      bookingEndDateString &&
-      startTime &&
-      endTime &&
-      usage.trim() &&
-      votNumber.trim() &&
-      requesterIdentifier.trim() &&
-      requesterFaculty.trim() &&
-      requesterContact.trim() &&
-      bookingDates.length > 0 &&
-      (isPicRequester || token.trim()),
+    bookingEndDateString &&
+    startTime &&
+    endTime &&
+    usage.trim() &&
+    votNumber.trim() &&
+    requesterIdentifier.trim() &&
+    requesterFaculty.trim() &&
+    requesterContact.trim() &&
+    bookingDates.length > 0 &&
+    (isPicRequester || token.trim()),
   );
   const canSubmit =
     validationStatus === "available" &&
@@ -477,7 +482,9 @@ function EquipmentBookingContent() {
       requesterFaculty: requesterFaculty.trim(),
       requesterContact: requesterContact.trim(),
       pic: picDetails || (isPicRequester ? requesterProfile : {}),
-      picCode: isPicRequester ? "PIC account - no token required" : token.trim().toUpperCase(),
+      picCode: isPicRequester
+        ? "PIC account - no token required"
+        : token.trim().toUpperCase(),
       startDate: selectedDateString,
       endDate: bookingEndDateString,
       startTime,
@@ -573,9 +580,9 @@ function EquipmentBookingContent() {
                 ? "This slot clashes with the teaching timetable."
                 : validationStatus === "maintenance"
                   ? "This equipment is under maintenance and cannot be booked."
-                : validationStatus === "invalid"
-                  ? "End time must be after start time."
-                : "Time slot not available. Please select another time.",
+                  : validationStatus === "invalid"
+                    ? "End time must be after start time."
+                    : "Time slot not available. Please select another time.",
         );
         return;
       }
@@ -684,6 +691,7 @@ function EquipmentBookingContent() {
       setRequesterIdentifier("");
       setRequesterFaculty("");
       setRequesterContact("");
+      router.push("/equipment-booking");
     } catch (err) {
       console.error(err);
       setErrorMessage("Unexpected error while booking equipment.");
@@ -735,7 +743,7 @@ function EquipmentBookingContent() {
 
             {rescheduleFromId ? (
               <p className="mt-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-warning">
-                You are creating a new booking request from approved booking {" "}
+                You are creating a new booking request from approved booking{" "}
                 <span className="font-semibold">{rescheduleFromId}</span>. Your
                 original booking remains active.
               </p>
@@ -780,7 +788,9 @@ function EquipmentBookingContent() {
                 <Input
                   placeholder="Enter your ID"
                   value={requesterIdentifier}
-                  onChange={(event) => setRequesterIdentifier(event.target.value)}
+                  onChange={(event) =>
+                    setRequesterIdentifier(event.target.value)
+                  }
                 />
               </div>
               <div>
@@ -935,12 +945,12 @@ function EquipmentBookingContent() {
                           displayStatus === "maintenance"
                             ? "border-yellow-200 bg-yellow-50 text-yellow-700"
                             : displayStatus === "approved"
-                            ? "border-primary/20 bg-white text-primary"
-                            : displayStatus === "pending"
-                              ? "border-purple-200 bg-purple-50 text-purple-700"
-                              : displayStatus === "class"
-                                ? "border-blue-200 bg-blue-50 text-blue-700"
-                               : "border-green-200 bg-green-50 text-green-700"
+                              ? "border-primary/20 bg-white text-primary"
+                              : displayStatus === "pending"
+                                ? "border-purple-200 bg-purple-50 text-purple-700"
+                                : displayStatus === "class"
+                                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                                  : "border-green-200 bg-green-50 text-green-700"
                         }`}
                       >
                         {displayStatus === "maintenance" && "MAINTENANCE"}
@@ -995,7 +1005,9 @@ function EquipmentBookingContent() {
                     }
                   }}
                   min={selectedDateString}
-                  max={formatDateForDB(addDaysToDate(currentDate, MAX_RANGE_DAYS - 1))}
+                  max={formatDateForDB(
+                    addDaysToDate(currentDate, MAX_RANGE_DAYS - 1),
+                  )}
                 />
               </div>
 
@@ -1033,11 +1045,11 @@ function EquipmentBookingContent() {
                   onChange={(event) => setEndTime(event.target.value)}
                   className="h-11 w-full rounded-xl border border-border-light bg-white px-3 text-text-main outline-none transition-colors focus:border-primary"
                 >
-                  {END_TIME_OPTIONS
-                    .filter((time) => time > startTime)
-                    .map((time) => (
+                  {END_TIME_OPTIONS.filter((time) => time > startTime).map(
+                    (time) => (
                       <option key={time}>{time}</option>
-                    ))}
+                    ),
+                  )}
                 </select>
               </div>
             </div>
@@ -1058,10 +1070,16 @@ function EquipmentBookingContent() {
                     (toMinutes(suggestedEnd) - toMinutes(suggestedStart)) / 60;
 
                   const hasBookingConflict = bookings.some((booking) => {
-                    const bookingStart = toMinutes(normalizeTime(booking.start_time));
-                    const bookingEnd = toMinutes(normalizeTime(booking.end_time));
+                    const bookingStart = toMinutes(
+                      normalizeTime(booking.start_time),
+                    );
+                    const bookingEnd = toMinutes(
+                      normalizeTime(booking.end_time),
+                    );
                     return (
-                      ["pending", "approved", "class"].includes(booking.status) &&
+                      ["pending", "approved", "class"].includes(
+                        booking.status,
+                      ) &&
                       toMinutes(suggestedStart) < bookingEnd &&
                       toMinutes(suggestedEnd) > bookingStart
                     );
@@ -1113,22 +1131,22 @@ function EquipmentBookingContent() {
                     ? "border-green-200 bg-green-50 text-green-700"
                     : validationStatus === "class"
                       ? "border-blue-200 bg-blue-50 text-blue-700"
-                    : "border-warning/20 bg-white text-warning"
+                      : "border-warning/20 bg-white text-warning"
                 }`}
               >
                 {validationStatus === "available"
                   ? "Slot is available"
                   : validationStatus === "maintenance"
                     ? "This equipment is under maintenance"
-                  : validationStatus === "class"
-                    ? "Slot blocked by class timetable"
-                    : validationStatus === "invalid"
-                      ? "End time must be after start time"
-                    : validationStatus === "date_invalid"
-                      ? "Date must be on a weekday and at least 7 days ahead"
-                      : validationStatus === "office_hours_invalid"
-                        ? "Time must be within office hours (08:00 to 18:00)"
-                        : "Time slot not available"}
+                    : validationStatus === "class"
+                      ? "Slot blocked by class timetable"
+                      : validationStatus === "invalid"
+                        ? "End time must be after start time"
+                        : validationStatus === "date_invalid"
+                          ? "Date must be on a weekday and at least 7 days ahead"
+                          : validationStatus === "office_hours_invalid"
+                            ? "Time must be within office hours (08:00 to 18:00)"
+                            : "Time slot not available"}
               </div>
               <p className="mt-3 text-sm text-text-muted">
                 Date ranges can cover up to 2 weeks. Weekend dates are skipped.
@@ -1271,7 +1289,7 @@ function EquipmentBookingContent() {
                 onClick={handleMockQuotationDownload}
                 className="md:w-auto"
               >
-                Download Mock Quotation PDF
+                Download Quotation PDF
               </Button>
               <Button
                 onClick={handleSubmitBooking}
@@ -1282,11 +1300,11 @@ function EquipmentBookingContent() {
                   ? "Submitting..."
                   : successMessage
                     ? "Booking Successful"
-                  : validationStatus === "available"
-                    ? "Book Now"
-                    : validationStatus === "maintenance"
-                      ? "Under Maintenance"
-                      : "Cannot Book - Conflict"}
+                    : validationStatus === "available"
+                      ? "Book Now"
+                      : validationStatus === "maintenance"
+                        ? "Under Maintenance"
+                        : "Cannot Book - Conflict"}
               </Button>
             </div>
           </div>

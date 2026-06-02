@@ -14,6 +14,7 @@ import {
   toMinutes,
 } from "@/lib/bookingConstraints";
 import { findLabTimetableConflict } from "@/lib/mockTimetable";
+import { sendBookingSubmittedEmail } from "@/lib/bookingDecisionEmail";
 
 const MAX_RANGE_DAYS = 14;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -57,7 +58,6 @@ function getBookingDates(startDateString, endDateString) {
 
   return { dates };
 }
-import { sendBookingSubmittedEmail } from "@/lib/bookingDecisionEmail";
 
 export async function POST(request) {
   try {
@@ -257,9 +257,10 @@ export async function POST(request) {
       );
     }
 
+    const firstBooking = bookings?.[0] || null;
     const notification = await sendBookingSubmittedEmail({
       booking: {
-        ...booking,
+        ...firstBooking,
         booking_type: "lab",
         item_id: labId,
         item_name: lab.name,
@@ -269,15 +270,13 @@ export async function POST(request) {
 
     return NextResponse.json(
       {
-       
         message:
           bookingDates.length === 1
             ? "Lab booking submitted. Waiting for approval."
             : `${bookingDates.length} lab bookings submitted. Waiting for approval.`,
-        booking: bookings?.[0] || null,
-        bookings:
-        bookings || [],
-     ,
+        booking: firstBooking,
+        bookings: bookings || [],
+
         notification,
       },
       { status: 201 },

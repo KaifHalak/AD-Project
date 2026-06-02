@@ -297,7 +297,11 @@ function LabReservationContent() {
         return;
       }
 
-      if (!formattedToken || formattedToken.length !== 6 || !requesterProfile?.id) {
+      if (
+        !formattedToken ||
+        formattedToken.length !== 6 ||
+        !requesterProfile?.id
+      ) {
         return;
       }
 
@@ -459,15 +463,15 @@ function LabReservationContent() {
     ? "invalid"
     : isUnderMaintenance(lab)
       ? "maintenance"
-    : !isDateValid
-      ? "date_invalid"
-      : !isOfficeRangeValid
-        ? "office_hours_invalid"
-        : timetableConflict
-          ? "class"
-    : conflict
-      ? getSlotStatus(conflict)
-      : "available";
+      : !isDateValid
+        ? "date_invalid"
+        : !isOfficeRangeValid
+          ? "office_hours_invalid"
+          : timetableConflict
+            ? "class"
+            : conflict
+              ? getSlotStatus(conflict)
+              : "available";
   const durationText = formatDuration(startTime, endTime);
   const bookingDates = getBookingDatesInRange(selectedDate, bookingEndDate);
   const bookingDayCount = Math.max(bookingDates.length, 1);
@@ -478,16 +482,16 @@ function LabReservationContent() {
   const isPicRequester = requesterRole === "pic";
   const hasCompleteBookingFields = Boolean(
     selectedDate &&
-      bookingEndDate &&
-      startTime &&
-      endTime &&
-      usage.trim() &&
-      votNumber.trim() &&
-      requesterIdentifier.trim() &&
-      requesterFaculty.trim() &&
-      requesterContact.trim() &&
-      bookingDates.length > 0 &&
-      (isPicRequester || token.trim()),
+    bookingEndDate &&
+    startTime &&
+    endTime &&
+    usage.trim() &&
+    votNumber.trim() &&
+    requesterIdentifier.trim() &&
+    requesterFaculty.trim() &&
+    requesterContact.trim() &&
+    bookingDates.length > 0 &&
+    (isPicRequester || token.trim()),
   );
   const canSubmit =
     validationStatus === "available" &&
@@ -505,7 +509,9 @@ function LabReservationContent() {
       requesterFaculty: requesterFaculty.trim(),
       requesterContact: requesterContact.trim(),
       pic: picDetails || (isPicRequester ? requesterProfile : {}),
-      picCode: isPicRequester ? "PIC account - no token required" : token.trim().toUpperCase(),
+      picCode: isPicRequester
+        ? "PIC account - no token required"
+        : token.trim().toUpperCase(),
       startDate: selectedDate,
       endDate: bookingEndDate,
       startTime,
@@ -527,7 +533,11 @@ function LabReservationContent() {
     downloadQuotationPdf(getQuotationPayload("DRAFT"));
   }
 
-  async function saveQuotation({ accessToken, responseData, quotationPayload }) {
+  async function saveQuotation({
+    accessToken,
+    responseData,
+    quotationPayload,
+  }) {
     const bookingRows = responseData.bookings || [responseData.booking];
     const bookingIds = bookingRows
       .map((booking) => Number(booking?.id))
@@ -579,7 +589,6 @@ function LabReservationContent() {
   }
 
   async function submitBookingRequest() {
-
     if (isSubmitting) {
       return;
     }
@@ -600,7 +609,7 @@ function LabReservationContent() {
               ? "This slot clashes with the teaching timetable."
               : validationStatus === "maintenance"
                 ? "This lab is under maintenance and cannot be booked."
-              : "Time slot not available. Please select another time.",
+                : "Time slot not available. Please select another time.",
       );
       return;
     }
@@ -713,6 +722,7 @@ function LabReservationContent() {
       setRequesterFaculty("");
       setRequesterContact("");
       setShowAgreementModal(false);
+      router.push("/lab-booking");
     } catch (error) {
       console.error(error);
       setErrorMessage("Unexpected error while booking a lab.");
@@ -789,7 +799,7 @@ function LabReservationContent() {
 
               {rescheduleFrom ? (
                 <p className="mt-3 rounded-lg border border-warning/20 bg-white px-3 py-2 text-warning">
-                  You are creating a new booking request from approved booking {" "}
+                  You are creating a new booking request from approved booking{" "}
                   <span className="font-semibold">{rescheduleFrom}</span>. Your
                   original booking remains active.
                 </p>
@@ -852,7 +862,9 @@ function LabReservationContent() {
                 <Input
                   placeholder="Enter your ID"
                   value={requesterIdentifier}
-                  onChange={(event) => setRequesterIdentifier(event.target.value)}
+                  onChange={(event) =>
+                    setRequesterIdentifier(event.target.value)
+                  }
                 />
               </div>
               <div>
@@ -1006,7 +1018,7 @@ function LabReservationContent() {
                               ? "border-purple-200 bg-purple-50 text-purple-700"
                               : status === "class"
                                 ? "border-blue-200 bg-blue-50 text-blue-700"
-                              : "border-primary/20 bg-white text-primary"
+                                : "border-primary/20 bg-white text-primary"
                           }`}
                         >
                           <span>
@@ -1064,7 +1076,8 @@ function LabReservationContent() {
                     type="date"
                     value={bookingEndDate}
                     onChange={(event) =>
-                      event.target.value && setBookingEndDate(event.target.value)
+                      event.target.value &&
+                      setBookingEndDate(event.target.value)
                     }
                     min={selectedDate}
                     max={addDaysToDateString(selectedDate, MAX_RANGE_DAYS - 1)}
@@ -1180,21 +1193,21 @@ function LabReservationContent() {
                       : "border-warning/20 bg-white text-warning"
                 }`}
               >
-              {validationStatus === "available"
-                ? "Slot is available"
-                : validationStatus === "maintenance"
-                  ? "This lab is under maintenance"
-                : validationStatus === "pending"
-                  ? "Slot currently requested by another user"
-                    : validationStatus === "class"
-                      ? "Slot blocked by class timetable"
-                    : validationStatus === "date_invalid"
-                      ? "Date must be on a weekday and at least 7 days ahead"
-                    : validationStatus === "office_hours_invalid"
-                      ? "Time must be within office hours (08:00 to 18:00)"
-                    : validationStatus === "invalid"
-                      ? "End time must be after start time"
-                      : "Time slot conflicts with an existing booking"}
+                {validationStatus === "available"
+                  ? "Slot is available"
+                  : validationStatus === "maintenance"
+                    ? "This lab is under maintenance"
+                    : validationStatus === "pending"
+                      ? "Slot currently requested by another user"
+                      : validationStatus === "class"
+                        ? "Slot blocked by class timetable"
+                        : validationStatus === "date_invalid"
+                          ? "Date must be on a weekday and at least 7 days ahead"
+                          : validationStatus === "office_hours_invalid"
+                            ? "Time must be within office hours (08:00 to 18:00)"
+                            : validationStatus === "invalid"
+                              ? "End time must be after start time"
+                              : "Time slot conflicts with an existing booking"}
               </div>
               <p className="mt-3 text-sm text-text-muted">
                 Date ranges can cover up to 2 weeks. Weekend dates are skipped.
@@ -1260,15 +1273,17 @@ function LabReservationContent() {
               </p>
               <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
                 <p className="mb-3 text-sm text-text-muted">
-                  Enter the 6-character token assigned to your account by the PIC.
-                  Tokens cannot be shared between users and can be reused until
-                  they expire.
+                  Enter the 6-character token assigned to your account by the
+                  PIC. Tokens cannot be shared between users and can be reused
+                  until they expire.
                 </p>
                 <Input
                   placeholder="Enter your token"
                   value={token}
                   maxLength={6}
-                  onChange={(event) => setToken(event.target.value.toUpperCase())}
+                  onChange={(event) =>
+                    setToken(event.target.value.toUpperCase())
+                  }
                 />
 
                 {picDetails ? (
@@ -1352,18 +1367,18 @@ function LabReservationContent() {
                 onClick={handleMockQuotationDownload}
                 className="md:w-auto"
               >
-                Download Mock Quotation PDF
+                Download Quotation PDF
               </Button>
               <Button type="submit" disabled={!canSubmit} className="md:w-auto">
                 {isSubmitting
                   ? "Submitting..."
                   : successMessage
                     ? "Booking Successful"
-                  : validationStatus === "available"
-                    ? "Confirm Booking"
-                    : validationStatus === "maintenance"
-                      ? "Under Maintenance"
-                      : "Cannot Book - Conflict"}
+                    : validationStatus === "available"
+                      ? "Confirm Booking"
+                      : validationStatus === "maintenance"
+                        ? "Under Maintenance"
+                        : "Cannot Book - Conflict"}
               </Button>
             </div>
           </div>
