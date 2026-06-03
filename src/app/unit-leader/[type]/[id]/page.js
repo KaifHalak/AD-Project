@@ -242,6 +242,14 @@ export default function UnitLeaderRequestDetailPage() {
             </div>
           </Section>
 
+          <Section title="Staff Information">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              <Field label="Staff Name" value={data.staff_name || "-"} />
+              <Field label="Staff Email" value={data.staff_email || "-"} />
+              <Field label="Staff Contact" value={data.staff_contact || "-"} />
+            </div>
+          </Section>
+
           <Section title="Booking Information">
             <div className="space-y-10">
               <Field

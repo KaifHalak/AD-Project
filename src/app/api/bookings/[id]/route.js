@@ -200,7 +200,7 @@ export async function GET(request, { params }) {
     const { data: booking, error: fetchError } = await admin
       .from("bookings")
       .select(
-        "id, booking_type, item_id, user_id, booking_date, start_time, end_time, status, item_name, grant_number, vot_number, total_price, created_at, token, assigned_by_id",
+        "id, booking_type, item_id, user_id, booking_date, start_time, end_time, status, item_name, grant_number, vot_number, total_price, created_at, token, staff_name, staff_email, staff_contact, assigned_by_id",
       )
       .eq("id", id)
       .maybeSingle();
@@ -298,6 +298,9 @@ export async function GET(request, { params }) {
             sourceBookingResult.data?.requester_identifier || "",
           requester_faculty: sourceBookingResult.data?.requester_faculty || "",
           requester_contact: sourceBookingResult.data?.requester_contact || "",
+          staff_name: booking.staff_name || "",
+          staff_email: booking.staff_email || "",
+          staff_contact: booking.staff_contact || "",
           pic_token: booking.token || "",
           pic_name: picUser?.username || "N/A",
           pic_email: picUser?.email || "N/A",

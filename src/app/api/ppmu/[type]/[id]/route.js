@@ -127,7 +127,7 @@ export async function GET(request, { params }) {
     const { data: booking, error: bookingError } = await admin
       .from("bookings")
       .select(
-        "id, booking_type, item_id, user_id, booking_date, start_time, end_time, status, item_name, grant_number, vot_number, total_price, created_at",
+        "id, booking_type, item_id, user_id, booking_date, start_time, end_time, status, item_name, grant_number, vot_number, total_price, created_at, staff_name, staff_email, staff_contact",
       )
       .eq("id", getBookingViewId(parsed.type, parsed.id))
       .maybeSingle();
@@ -172,7 +172,9 @@ export async function GET(request, { params }) {
       parsed.type === "lab" ? "lab_bookings" : "equipment_bookings";
     const { data: sourceBooking, error: sourceBookingError } = await admin
       .from(sourceTable)
-      .select("booking_reason, requester_identifier, requester_faculty, requester_contact")
+      .select(
+        "booking_reason, requester_identifier, requester_faculty, requester_contact",
+      )
       .eq("id", parsed.id)
       .maybeSingle();
 
@@ -201,6 +203,9 @@ export async function GET(request, { params }) {
           requester_identifier: sourceBooking?.requester_identifier || "",
           requester_faculty: sourceBooking?.requester_faculty || "",
           requester_contact: sourceBooking?.requester_contact || "",
+          staff_name: booking.staff_name || "",
+          staff_email: booking.staff_email || "",
+          staff_contact: booking.staff_contact || "",
           usage: sourceBooking?.booking_reason || "",
           unit_leader_name: unitLeader?.username || "N/A",
           unit_leader_email: unitLeader?.email || "N/A",

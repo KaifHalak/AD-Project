@@ -254,6 +254,17 @@ export default function BookingRecordDetailPage() {
           </Grid>
         </Section>
 
+        <Section title="Staff Information">
+          <Grid>
+            <Field label="Staff Name" value={booking.staff_name || "-"} />
+            <Field label="Staff Email" value={booking.staff_email || "-"} />
+            <Field
+              label="Staff Contact"
+              value={booking.staff_contact || "-"}
+            />
+          </Grid>
+        </Section>
+
         <Section title="Booking Information">
           <div className="space-y-8">
             <Field

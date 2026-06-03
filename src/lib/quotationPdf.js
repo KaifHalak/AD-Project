@@ -95,6 +95,9 @@ export function downloadQuotationPdf({
   requesterIdentifier,
   requesterFaculty,
   requesterContact,
+  staffName,
+  staffEmail,
+  staffContact,
   pic = {},
   picCode,
   startDate,
@@ -200,6 +203,19 @@ export function downloadQuotationPdf({
       ["ID", requesterIdentifier],
       ["Faculty", requesterFaculty],
       ["Contact Number", requesterContact],
+    ],
+    margin,
+    y,
+    tableWidth,
+  );
+
+  y = drawSection(
+    doc,
+    "Staff Information",
+    [
+      ["Staff Name", staffName],
+      ["Staff Email", staffEmail],
+      ["Staff Contact", staffContact],
     ],
     margin,
     y,

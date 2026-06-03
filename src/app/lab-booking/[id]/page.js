@@ -366,7 +366,7 @@ function LabReservationContent() {
       const { data, error } = await supabase
         .from("labs")
         .select(
-          "id, name, description, location, status, price_per_hour, course",
+          "id, name, description, location, status, price_per_hour, course, staff_name, staff_email, staff_contact",
         )
         .eq("id", id)
         .maybeSingle();
@@ -479,6 +479,9 @@ function LabReservationContent() {
     getDurationHours(startTime, endTime) *
     (lab?.price_per_hour || 0) *
     bookingDayCount;
+  const staffName = lab?.staff_name || "";
+  const staffEmail = lab?.staff_email || "";
+  const staffContact = lab?.staff_contact || "";
   const isPicRequester = requesterRole === "pic";
   const hasCompleteBookingFields = Boolean(
     selectedDate &&
@@ -508,6 +511,9 @@ function LabReservationContent() {
       requesterIdentifier: requesterIdentifier.trim(),
       requesterFaculty: requesterFaculty.trim(),
       requesterContact: requesterContact.trim(),
+      staffName,
+      staffEmail,
+      staffContact,
       pic: picDetails || (isPicRequester ? requesterProfile : {}),
       picCode: isPicRequester
         ? "PIC account - no token required"
@@ -826,7 +832,43 @@ function LabReservationContent() {
 
           <section className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              02 User Details
+              02 Staff Details
+            </p>
+            <div className="grid gap-4 rounded-xl border border-border-light bg-white p-5 md:grid-cols-3 md:p-6">
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Staff Name
+                </p>
+                <Input
+                  value={staffName}
+                  readOnly
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Staff Email
+                </p>
+                <Input
+                  type="email"
+                  value={staffEmail}
+                  readOnly
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Staff Contact
+                </p>
+                <Input
+                  value={staffContact}
+                  readOnly
+                />
+              </div>
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+              03 User Details
             </p>
             <div className="grid gap-4 rounded-xl border border-border-light bg-white p-5 md:grid-cols-3 md:p-6">
               <div>
@@ -852,7 +894,7 @@ function LabReservationContent() {
 
           <section className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              03 Additional Requester Details
+              04 Additional Requester Details
             </p>
             <div className="grid gap-4 rounded-xl border border-border-light bg-white p-5 md:grid-cols-3 md:p-6">
               <div>
@@ -892,7 +934,7 @@ function LabReservationContent() {
 
           <section className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              04 Availability Preview
+              05 Availability Preview
             </p>
             <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
               <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -1046,7 +1088,7 @@ function LabReservationContent() {
 
           <section className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              05 Date and Time Selection
+              06 Date and Time Selection
             </p>
             <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
               <div className="grid gap-6 md:grid-cols-2">
@@ -1218,7 +1260,7 @@ function LabReservationContent() {
 
           <section className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              06 Equipment
+              07 Equipment
             </p>
             <div className="rounded-xl border border-border-light bg-white px-4 py-4 text-sm text-text-muted">
               Basic equipment will be provided with your lab booking.
@@ -1227,7 +1269,7 @@ function LabReservationContent() {
 
           <section className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              07 Usage Context
+              08 Usage Context
             </p>
             <textarea
               rows={6}
@@ -1240,7 +1282,7 @@ function LabReservationContent() {
 
           <section className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              08 Billing
+              09 Billing
             </p>
             <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
@@ -1269,7 +1311,7 @@ function LabReservationContent() {
           {!isPicRequester ? (
             <section className="space-y-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-                09 Authorization Token
+                10 Authorization Token
               </p>
               <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
                 <p className="mb-3 text-sm text-text-muted">
@@ -1409,6 +1451,9 @@ function LabReservationContent() {
                     }`,
                   ],
                   ["Time", `${startTime} - ${endTime}`],
+                  ["Staff Name", staffName || "-"],
+                  ["Staff Email", staffEmail || "-"],
+                  ["Staff Contact", staffContact || "-"],
                   ["VOT Number", votNumber || "-"],
                   ["PIC", picDetails?.username || "-"],
                   ["Estimated Total", formatRmFromUsd(total)],

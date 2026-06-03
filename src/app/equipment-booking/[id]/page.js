@@ -411,6 +411,9 @@ function EquipmentBookingContent() {
   const durationMinutes = toMinutes(endTime) - toMinutes(startTime);
   const duration = Math.max(0, durationMinutes / 60);
   const total = duration * equipment.price_per_hour * bookingDayCount;
+  const staffName = equipment?.staff_name || "";
+  const staffEmail = equipment?.staff_email || "";
+  const staffContact = equipment?.staff_contact || "";
 
   //  check availability
   const isTimeAvailable = () => {
@@ -481,6 +484,9 @@ function EquipmentBookingContent() {
       requesterIdentifier: requesterIdentifier.trim(),
       requesterFaculty: requesterFaculty.trim(),
       requesterContact: requesterContact.trim(),
+      staffName,
+      staffEmail,
+      staffContact,
       pic: picDetails || (isPicRequester ? requesterProfile : {}),
       picCode: isPicRequester
         ? "PIC account - no token required"
@@ -713,16 +719,13 @@ function EquipmentBookingContent() {
             Back
           </Button>
 
-          <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
-            <div className="text-center">
-              <h1 className="text-3xl font-semibold text-primary">
-                {equipment.name}
-              </h1>
-              <p className="mt-2 text-sm text-text-muted">ID: {equipment.id}</p>
-              <p className="mt-3 text-sm font-semibold text-primary">
-                {formatRmFromUsd(equipment.price_per_hour || 0)}/hr
-              </p>
-            </div>
+          <div className="text-center">
+            <h1 className="text-3xl font-semibold text-primary">
+              Equipment Reservation
+            </h1>
+            <p className="mt-2 text-sm uppercase tracking-wide text-text-muted">
+              Equipment Booking
+            </p>
           </div>
 
           <div className="rounded-xl border border-border-light bg-white p-4 text-sm text-text-muted md:p-5">
@@ -752,7 +755,61 @@ function EquipmentBookingContent() {
 
           <div className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              01 User Details
+              01 Equipment
+            </p>
+            <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
+              <h1 className="text-3xl font-semibold text-primary">
+                {equipment.name}
+              </h1>
+              <p className="mt-2 text-sm text-text-muted">ID: {equipment.id}</p>
+              <p className="mt-2 text-sm text-text-muted">
+                {equipment.location || "Location not provided"}
+              </p>
+              <p className="mt-3 text-sm font-semibold text-primary">
+                {formatRmFromUsd(equipment.price_per_hour || 0)}/hr
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+              02 Staff Details
+            </p>
+            <div className="grid gap-4 rounded-xl border border-border-light bg-white p-5 md:grid-cols-3 md:p-6">
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Staff Name
+                </p>
+                <Input
+                  value={staffName}
+                  readOnly
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Staff Email
+                </p>
+                <Input
+                  type="email"
+                  value={staffEmail}
+                  readOnly
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Staff Contact
+                </p>
+                <Input
+                  value={staffContact}
+                  readOnly
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+              03 User Details
             </p>
             <div className="grid gap-4 rounded-xl border border-border-light bg-white p-5 md:grid-cols-3 md:p-6">
               <div>
@@ -778,7 +835,7 @@ function EquipmentBookingContent() {
 
           <div className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              02 Additional Requester Details
+              04 Additional Requester Details
             </p>
             <div className="grid gap-4 rounded-xl border border-border-light bg-white p-5 md:grid-cols-3 md:p-6">
               <div>
@@ -818,7 +875,7 @@ function EquipmentBookingContent() {
 
           <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
             <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-text-muted">
-              03 Availability
+              05 Availability
             </p>
             <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div className="flex items-center gap-3">
@@ -968,7 +1025,7 @@ function EquipmentBookingContent() {
 
           <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
             <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-text-muted">
-              04 Date and Time Selection
+              06 Date and Time Selection
             </p>
             <div className="grid gap-6 md:grid-cols-2">
               <div>
@@ -1157,7 +1214,7 @@ function EquipmentBookingContent() {
 
           <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-text-muted">
-              05 Usage Context
+              07 Usage Context
             </p>
             <textarea
               placeholder="Briefly describe research objective..."
@@ -1169,7 +1226,7 @@ function EquipmentBookingContent() {
 
           <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-text-muted">
-              06 Billing
+              08 Billing
             </p>
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
               VOT Number
@@ -1196,7 +1253,7 @@ function EquipmentBookingContent() {
           {!isPicRequester ? (
             <div className="rounded-xl border border-border-light bg-white p-5 md:p-6">
               <p className="mb-2 text-xs font-semibold tracking-wide text-text-muted">
-                07 PIC TOKEN
+                09 PIC TOKEN
               </p>
               <p className="mb-3 text-sm text-text-muted">
                 Ask the responsible PIC for a 6-character token. Tokens are tied
@@ -1275,7 +1332,7 @@ function EquipmentBookingContent() {
           <div className="flex flex-col gap-4 rounded-xl border border-border-light bg-white p-5 md:flex-row md:items-center md:justify-between md:p-6">
             <div>
               <p className="text-xs font-semibold tracking-wide text-text-muted">
-                08 EST. TOTAL
+                10 EST. TOTAL
               </p>
               <p className="text-2xl font-semibold text-primary">
                 {formatRmFromUsd(total)}
@@ -1335,6 +1392,9 @@ function EquipmentBookingContent() {
                     }`,
                   ],
                   ["Time", `${startTime} - ${endTime}`],
+                  ["Staff Name", staffName || "-"],
+                  ["Staff Email", staffEmail || "-"],
+                  ["Staff Contact", staffContact || "-"],
                   ["VOT Number", votNumber || "-"],
                   ["PIC", picDetails?.username || "-"],
                   ["Estimated Total", formatRmFromUsd(total)],
