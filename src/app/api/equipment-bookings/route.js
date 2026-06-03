@@ -248,6 +248,7 @@ export async function POST(request) {
       requester_faculty: requesterFaculty,
       requester_contact: requesterContact,
       total_price: dailyPrice,
+      token: picCode || null,
     }));
 
     const { data: bookings, error: insertError } = await admin

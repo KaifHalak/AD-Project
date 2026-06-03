@@ -274,7 +274,6 @@ export default function BookingRecordDetailPage() {
                   booking.end_time,
                 )}`}
               />
-              <Field label="Grant Number" value={booking.grant_number || "-"} />
               <Field label="VOT Number" value={booking.vot_number || "-"} />
               <Field
                 label="Total Price"

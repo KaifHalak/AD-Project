@@ -221,7 +221,10 @@ export default function UnitLeaderRequestDetailPage() {
                 />
               </Field>
               <Field label="Booking Date" value={data.booking_date} />
-              <Field label="Request Made" value={formatDateTime(data.created_at)} />
+              <Field
+                label="Request Made"
+                value={formatDateTime(data.created_at)}
+              />
             </Grid>
           </Section>
 
@@ -232,7 +235,10 @@ export default function UnitLeaderRequestDetailPage() {
               <Field label="User Role" value={data.user_role} />
               <Field label="User ID" value={data.requester_identifier || "-"} />
               <Field label="Faculty" value={data.requester_faculty || "-"} />
-              <Field label="Contact Number" value={data.requester_contact || "-"} />
+              <Field
+                label="Contact Number"
+                value={data.requester_contact || "-"}
+              />
             </div>
           </Section>
 
@@ -255,10 +261,6 @@ export default function UnitLeaderRequestDetailPage() {
               </div>
 
               <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-                <Field
-                  label="Grant Number"
-                  value={data.grant_number || "-"}
-                />
                 <Field label="VOT Number" value={data.vot_number || "-"} />
                 <Field
                   label="Request Price"
