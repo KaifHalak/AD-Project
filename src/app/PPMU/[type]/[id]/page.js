@@ -2,50 +2,43 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { ArrowLeft, MapPin } from "lucide-react";
 import { getCurrentSession } from "@/lib/supabase/auth";
 import { formatRmFromUsd } from "@/lib/currency";
 
 function formatTime(timeValue) {
-  if (!timeValue) return "-";
-
-  const [hours = "0", minutes = "0"] = String(timeValue).split(":");
-  const date = new Date();
-  date.setHours(Number(hours), Number(minutes), 0, 0);
-
-  return date.toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+  return timeValue ? String(timeValue).slice(0, 5) : "-";
 }
 
-function formatDateTime(dateTimeValue) {
-  if (!dateTimeValue) return "N/A";
-
-  return new Date(dateTimeValue).toLocaleString([], {
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+function formatStudyLevel(value) {
+  if (!value) return "-";
+  return String(value).replaceAll("_", " ").replace(/^\w/, (char) => char.toUpperCase());
 }
 
-function formatPrice(value) {
-  return value === null || value === undefined ? "-" : formatRmFromUsd(value);
+function formatDecision(process) {
+  if (!process) return "Pending";
+  return process.decision === "approved" ? "Approved" : "Rejected";
 }
 
-export default function RequestDetailPage() {
+function statusClass(status) {
+  switch (status) {
+    case "approved":
+      return "bg-green-100 text-green-700";
+    case "rejected":
+      return "bg-red-100 text-red-700";
+    default:
+      return "bg-primary/10 text-primary";
+  }
+}
+
+export default function PpmuRequestDetailPage() {
   const { type, id } = useParams();
   const router = useRouter();
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-  const [showSuccess, setShowSuccess] = useState(false);
-  const [popupMessage, setPopupMessage] = useState("");
-  const [ppmuRemarks, setPpmuRemarks] = useState("");
+  const [remarksByItem, setRemarksByItem] = useState({});
 
   const getAccessToken = useCallback(async () => {
     const { data: sessionData } = await getCurrentSession();
@@ -65,23 +58,12 @@ export default function RequestDetailPage() {
       }
 
       const response = await fetch(`/api/ppmu/${type}/${id}`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
-
       const responseData = await response.json();
 
       if (!response.ok) {
-        if (response.status === 401) {
-          router.push("/");
-          return;
-        }
-
-        setErrorMessage(
-          responseData?.error || "Could not load request details.",
-        );
+        setErrorMessage(responseData?.error || "Could not load request details.");
         return;
       }
 
@@ -98,12 +80,8 @@ export default function RequestDetailPage() {
     fetchData();
   }, [fetchData]);
 
-  const handleDecision = async (decision) => {
-    if (!data?.can_review) {
-      return;
-    }
-
-    setIsSubmitting(true);
+  async function handleDecision(itemId, decision) {
+    setIsSubmitting(`${itemId}-${decision}`);
     setErrorMessage("");
 
     try {
@@ -120,347 +98,204 @@ export default function RequestDetailPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ decision, remarks: ppmuRemarks }),
+        body: JSON.stringify({
+          itemId,
+          decision,
+          remarks: remarksByItem[itemId] || "",
+        }),
       });
-
       const responseData = await response.json();
 
       if (!response.ok) {
-        if (response.status === 401) {
-          router.push("/");
-          return;
-        }
-
         setErrorMessage(responseData?.error || "Could not save decision.");
         return;
       }
 
-      setPopupMessage(responseData?.message || "Decision saved.");
-      setShowSuccess(true);
-
-      setTimeout(() => {
-        router.push("/PPMU");
-      }, 1500);
+      await fetchData();
     } catch (error) {
       console.error(error);
       setErrorMessage("Server error while saving decision.");
     } finally {
-      setIsSubmitting(false);
+      setIsSubmitting("");
     }
-  };
+  }
 
   if (isLoading) {
-    return <div className="p-10">Loading...</div>;
+    return <div className="min-h-screen bg-background-main p-8">Loading...</div>;
   }
 
   if (!data) {
     return (
-      <div className="bg-[#f4efe9] min-h-screen p-8">
-        <div className="w-3/4 max-w-7xl mx-auto">
-          <button
-            onClick={() => router.back()}
-            className="text-2xl cursor-pointer"
-          >
-            &larr;
-          </button>
-          <p className="mt-6 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {errorMessage || "Request details could not be loaded."}
-          </p>
-        </div>
+      <div className="min-h-screen bg-background-main p-8">
+        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorMessage || "Request details could not be loaded."}
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="bg-[#f4efe9] min-h-screen p-8">
-      {/* SUCCESS POPUP */}
-      {showSuccess && (
-        <div className="fixed top-6 right-6 z-50">
-          <div className="bg-green-500 text-white px-6 py-4 rounded-2xl shadow-xl">
-            {popupMessage}
-          </div>
-        </div>
-      )}
+    <main className="min-h-screen bg-background-main px-4 py-6 md:px-8">
+      <section className="mx-auto max-w-7xl space-y-6">
+        <button
+          type="button"
+          onClick={() => router.back()}
+          className="inline-flex items-center gap-2 text-sm font-semibold text-text-muted hover:text-primary"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
 
-      <div className="w-3/4 max-w-7xl mx-auto">
-        {/* BACK + TITLE */}
-        <div className="flex items-center gap-4 mb-6">
-          <button
-            onClick={() => router.back()}
-            className="text-2xl cursor-pointer"
-          >
-            &larr;
-          </button>
-
-          <h1 className="text-4xl font-bold">Request Details</h1>
+        <div>
+          <h1 className="text-3xl font-semibold text-text-main">
+            Request #{data.id}
+          </h1>
+          <p className="mt-2 text-sm text-text-muted">
+            {data.user_name} | {data.user_email} | VOT {data.vot_number || "-"}
+          </p>
         </div>
 
         {errorMessage ? (
-          <p className="mb-6 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {errorMessage}
           </p>
         ) : null}
 
-        <div className="mb-6 rounded-2xl border border-border-light bg-[#fafafa] p-5 text-sm text-gray-600 shadow-sm">
-          <p className="font-semibold text-[#b0125b]">Review instructions</p>
-          <p className="mt-2">
-            Review the request details carefully before final approval. If the
-            request is approved, confirm the grant, VOT number, and request
-            price so the finance side can deduct the required funds from the
-            correct allocation.
-          </p>
+        <div className="space-y-5">
+          <DetailSection title="User Details">
+            <Info label="User ID" value={data.requester_identifier || "-"} />
+            <Info label="Faculty" value={data.requester_faculty || "-"} />
+            <Info label="Contact" value={data.requester_contact || "-"} />
+            <Info label="Study Level" value={formatStudyLevel(data.study_level)} />
+          </DetailSection>
+
+          <DetailSection title="Lecturer Details">
+            <Info label="Lecturer Name" value={data.lect_name || "-"} />
+            <Info label="Lecturer Email" value={data.lect_email || "-"} />
+            <Info label="Lecturer Contact" value={data.lect_contact || "-"} />
+          </DetailSection>
+
+          <DetailSection title="Request Details">
+            <Info label="Request Details" value={data.request_details || "-"} wide />
+          </DetailSection>
         </div>
 
-        <div className="space-y-6">
-          {/* REQUEST OVERVIEW */}
-          <Section title="Request Overview">
-            <Grid>
-              <Field label="Request ID" value={data.id} />
-
-              <Field label="Request Type" value={data.type} />
-
-              <Field label="Current Status">
-                <Badge
-                  text={data.status}
-                  type={data.status_type || "approved"}
-                />
-              </Field>
-
-              <Field label="Booking Date" value={data.booking_date} />
-              <Field
-                label="Request Made"
-                value={formatDateTime(data.created_at)}
-              />
-            </Grid>
-          </Section>
-
-          {/* USER INFORMATION */}
-          <Section title="User Information">
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              <Field label="User Name" value={data.user_name} />
-
-              <Field label="User Email" value={data.user_email} />
-
-              <Field label="User Role" value={data.user_role} />
-
-              <Field label="User ID" value={data.requester_identifier || "-"} />
-
-              <Field label="Faculty" value={data.requester_faculty || "-"} />
-
-              <Field
-                label="Contact Number"
-                value={data.requester_contact || "-"}
-              />
-
-              <Field label="Unit Leader Name" value={data.unit_leader_name} />
-
-              <Field label="Unit Leader Email" value={data.unit_leader_email} />
-
-              <Field label="Unit Leader Role" value={data.unit_leader_role} />
-            </div>
-          </Section>
-
-          <Section title="Staff Information">
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              <Field label="Staff Name" value={data.staff_name || "-"} />
-              <Field label="Staff Email" value={data.staff_email || "-"} />
-              <Field label="Staff Contact" value={data.staff_contact || "-"} />
-            </div>
-          </Section>
-
-          {/* BOOKING INFO */}
-          <Section title="Booking Information">
-            <div className="space-y-10">
-              {/* RESOURCE NAME */}
-              <Field
-                label={type === "lab" ? "Lab Name" : "Equipment Name"}
-                value={data.resource_name}
-              />
-
-              {/* START / END */}
-              <div className="grid grid-cols-2 gap-10">
-                <Field
-                  label="Start Date & Time"
-                  value={`${data.booking_date} ${formatTime(data.start_time)}`}
-                />
-
-                <Field
-                  label="End Date & Time"
-                  value={`${data.booking_date} ${formatTime(data.end_time)}`}
-                />
+        <div className="space-y-5">
+          {data.items.map((item) => (
+            <article
+              key={item.id}
+              className="rounded-2xl border border-border-light bg-white p-6 shadow-sm"
+            >
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="flex flex-wrap gap-2">
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-semibold uppercase ${statusClass(
+                        item.unit_leader_process?.decision,
+                      )}`}
+                    >
+                      Unit Leader: {formatDecision(item.unit_leader_process)}
+                    </span>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-semibold uppercase ${statusClass(
+                        item.ppmu_process?.decision,
+                      )}`}
+                    >
+                      PPMU: {formatDecision(item.ppmu_process)}
+                    </span>
+                  </div>
+                  <h2 className="mt-4 text-2xl font-semibold text-text-main">
+                    {item.equipment_name}
+                  </h2>
+                  <p className="mt-2 flex items-center gap-2 text-sm text-text-muted">
+                    <MapPin className="h-4 w-4" />
+                    {item.lab_name} | {item.start_date} to {item.end_date} |{" "}
+                    {formatTime(item.start_time)} - {formatTime(item.end_time)}
+                  </p>
+                </div>
+                <p className="text-xl font-semibold text-primary">
+                  {formatRmFromUsd(item.total_price || 0)}
+                </p>
               </div>
 
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-                <Field label="VOT Number" value={data.vot_number || "-"} />
-                <Field
-                  label="Request Price"
-                  value={formatPrice(data.total_price)}
-                />
+              <div className="mt-5 grid gap-4 md:grid-cols-3">
+                <Info label="Staff Name" value={item.staff_name || "-"} />
+                <Info label="Staff Email" value={item.staff_email || "-"} />
+                <Info label="Staff Contact" value={item.staff_contact || "-"} />
               </div>
 
-              {/* REASON */}
-              <Field
-                label="Reason for Booking"
-                value={data.usage || "No reason provided."}
-                full
-              />
-            </div>
-          </Section>
+              <div className="mt-5 rounded-xl border border-border-light bg-background-main p-4">
+                <p className="text-sm font-semibold text-text-main">Reason</p>
+                <p className="mt-2 whitespace-pre-wrap text-sm text-text-muted">
+                  {item.booking_reason || "No reason provided."}
+                </p>
+              </div>
 
-          {/* UNIT LEADER */}
-          <Section title="Unit Leader Review">
-            <div className="grid grid-cols-3 gap-10">
-              {/* DECISION */}
-              <Field label="Unit Leader Decision">
-                <Badge
-                  text="Approved by Unit Leader"
-                  type={
-                    data.unit_leader_decision === "approved"
-                      ? "approved"
-                      : data.unit_leader_decision === "rejected"
-                        ? "rejected"
-                        : "pending"
-                  }
-                />
-              </Field>
-
-              {/* NAME */}
-              <Field
-                label="Unit Leader Name"
-                value={data.unit_leader_name || "N/A"}
-              />
-
-              {/* DATE */}
-              <Field
-                label="Decision Date"
-                value={formatDateTime(data.unit_leader_date)}
-              />
-            </div>
-
-            <div className="mt-6">
-              <Field
-                label="Remarks"
-                value={data.unit_leader_remarks || "No remarks provided."}
-              />
-            </div>
-          </Section>
-
-          {/* DECISION PANEL */}
-          <Section title="PPMU Decision Panel">
-            <p className="text-sm text-gray-500 mb-4">MAKE FINAL DECISION</p>
-
-            {!data.can_review ? (
-              <p className="mb-5 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-                PPMU decision has already been submitted and cannot be changed.
-              </p>
-            ) : null}
-
-            {!data.can_review ? (
-              <div className="grid grid-cols-2 gap-6 mb-5">
-                <Field label="PPMU Decision">
-                  <Badge
-                    text={
-                      data.ppmu_decision === "approved"
-                        ? "Approved"
-                        : data.ppmu_decision === "rejected"
-                          ? "Rejected"
-                          : "Pending Final Review"
+              <div className="mt-5">
+                <label className="block space-y-2">
+                  <span className="text-sm font-semibold text-text-main">
+                    PPMU Remarks
+                  </span>
+                  <textarea
+                    value={remarksByItem[item.id] || ""}
+                    onChange={(event) =>
+                      setRemarksByItem((current) => ({
+                        ...current,
+                        [item.id]: event.target.value,
+                      }))
                     }
-                    type={data.ppmu_decision || "pending"}
+                    disabled={!item.can_review}
+                    rows={3}
+                    className="w-full resize-none rounded-xl border border-border-light bg-white px-3 py-2 text-sm text-text-main outline-none focus:border-primary disabled:opacity-60"
+                    placeholder={item.ppmu_process?.remarks || "Add remarks..."}
                   />
-                </Field>
-                <Field
-                  label="Decision Date"
-                  value={formatDateTime(data.ppmu_date)}
-                />
+                </label>
+
+                <div className="mt-4 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleDecision(item.id, "approved")}
+                    disabled={!item.can_review || Boolean(isSubmitting)}
+                    className="flex-1 rounded-xl border border-green-400 px-4 py-3 font-semibold text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isSubmitting === `${item.id}-approved` ? "Saving..." : "Approve"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDecision(item.id, "rejected")}
+                    disabled={!item.can_review || Boolean(isSubmitting)}
+                    className="flex-1 rounded-xl border border-red-400 px-4 py-3 font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isSubmitting === `${item.id}-rejected` ? "Saving..." : "Reject"}
+                  </button>
+                </div>
               </div>
-            ) : null}
-
-            <div className="mb-5">
-              <label
-                htmlFor="ppmuRemarks"
-                className="block text-xs text-gray-500 mb-1"
-              >
-                PPMU REMARKS
-              </label>
-              <textarea
-                id="ppmuRemarks"
-                value={ppmuRemarks}
-                onChange={(event) => setPpmuRemarks(event.target.value)}
-                placeholder="Add final review remarks..."
-                disabled={!data.can_review}
-                rows={4}
-                className="w-full resize-none rounded-xl border border-[#ddd6cc] bg-[#f3efe9] p-3 text-text-main outline-none placeholder:text-gray-400 disabled:cursor-not-allowed disabled:opacity-70"
-              />
-              <p className="mt-2 text-xs text-gray-500">
-                {data.can_review
-                  ? 'Default if blank: "Approved by PPMU" when approving, or "Rejected by PPMU" when rejecting.'
-                  : data.ppmu_remarks || "No remarks provided."}
-              </p>
-            </div>
-
-            <div className="flex gap-4">
-              <button
-                onClick={() => handleDecision("approved")}
-                disabled={isSubmitting || !data.can_review}
-                className="flex-1 border border-green-500 text-green-600 py-4 rounded-xl text-lg font-medium cursor-pointer hover:bg-green-50 transition disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                &#10003; Approve
-              </button>
-
-              <button
-                onClick={() => handleDecision("rejected")}
-                disabled={isSubmitting || !data.can_review}
-                className="flex-1 border border-red-500 text-red-500 py-4 rounded-xl text-lg font-medium cursor-pointer hover:bg-red-50 transition disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                &#10005; Reject
-              </button>
-            </div>
-          </Section>
+            </article>
+          ))}
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }
 
-/* ---------- UI COMPONENTS ---------- */
-
-function Section({ title, children }) {
+function DetailSection({ title, children }) {
   return (
-    <div className="border border-border-light bg-[#fafafa] p-6 rounded-2xl shadow-sm">
-      <h2 className="text-xl font-semibold mb-4">{title}</h2>
-
-      {children}
-    </div>
+    <section className="rounded-2xl border border-border-light bg-white p-5 shadow-sm">
+      <h2 className="text-sm font-semibold uppercase text-primary">{title}</h2>
+      <div className="mt-4 grid gap-4 md:grid-cols-3">{children}</div>
+    </section>
   );
 }
 
-function Grid({ children }) {
-  return <div className="grid grid-cols-2 gap-6">{children}</div>;
-}
-
-function Field({ label, value, children, full }) {
+function Info({ label, value, wide }) {
   return (
-    <div className={`${full ? "col-span-2" : ""} min-w-0`}>
-      <p className="text-xs text-gray-500 mb-1">{label?.toUpperCase()}</p>
-
-      <div className="text-lg font-medium break-words">
-        {children ? children : value}
-      </div>
+    <div
+      className={`rounded-xl border border-border-light bg-background-main p-4 ${
+        wide ? "md:col-span-3" : ""
+      }`}
+    >
+      <p className="text-xs font-semibold uppercase text-text-muted">{label}</p>
+      <p className="mt-1 break-words font-semibold text-text-main">{value}</p>
     </div>
-  );
-}
-
-function Badge({ text, type }) {
-  const styles = {
-    pending: "bg-yellow-100 text-yellow-600",
-    approved: "bg-green-100 text-green-600",
-    rejected: "bg-red-100 text-red-600",
-  };
-
-  return (
-    <span className={`px-3 py-1 rounded-full text-sm ${styles[type]}`}>
-      {text}
-    </span>
   );
 }

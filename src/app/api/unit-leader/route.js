@@ -5,40 +5,6 @@ import {
   getRequesterProfile,
 } from "@/lib/bookingTokenAuth";
 
-function getProcessKey(process) {
-  return `${process.booking_type}-${process.booking_id}`;
-}
-
-function getBookingSourceId(booking) {
-  const [, sourceId] = String(booking.id || "").split("-");
-  return Number(sourceId);
-}
-
-function getProcessTime(process) {
-  return new Date(process.decision_at || process.created_at || 0).getTime();
-}
-
-function getLatestByBooking(processes) {
-  const latestByBooking = new Map();
-
-  for (const process of processes || []) {
-    const key = getProcessKey(process);
-    const current = latestByBooking.get(key);
-
-    if (!current || getProcessTime(process) > getProcessTime(current)) {
-      latestByBooking.set(key, process);
-    }
-  }
-
-  return latestByBooking;
-}
-
-function toDisplayStatus(decision) {
-  if (decision === "approved") return "Approved";
-  if (decision === "rejected") return "Rejected";
-  return "Pending";
-}
-
 async function requireUnitLeaderRequester(request) {
   const accessToken = getAccessTokenFromHeader(request);
 
@@ -56,20 +22,30 @@ async function requireUnitLeaderRequester(request) {
     "Please log in before viewing unit leader approvals.",
   );
 
-  if (error) {
-    return { error };
-  }
+  if (error) return { error };
 
   if (requester.role !== "unit_leader") {
     return {
-      error: {
-        status: 403,
-        message: "Only unit leaders can access this page.",
-      },
+      error: { status: 403, message: "Only unit leaders can access this page." },
     };
   }
 
   return { requester };
+}
+
+function getUnitLeaderStatus(items, processes) {
+  if (!items.length) return "Pending";
+  const processByItem = new Map(
+    (processes || [])
+      .filter((process) => process.reviewer_role === "unit_leader")
+      .map((process) => [Number(process.booking_id), process]),
+  );
+  const decisions = items.map((item) => processByItem.get(item.id)?.decision || "pending");
+
+  if (decisions.every((decision) => decision === "approved")) return "Approved";
+  if (decisions.every((decision) => decision === "rejected")) return "Rejected";
+  if (decisions.some((decision) => decision !== "pending")) return "Partially Reviewed";
+  return "Pending";
 }
 
 export async function GET(request) {
@@ -81,34 +57,46 @@ export async function GET(request) {
     }
 
     const admin = getSupabaseAdminClient();
-
-    const { data: unitLeaderProcesses, error: processError } = await admin
-      .from("booking_process")
+    const { data: bookings, error: bookingsError } = await admin
+      .from("bookings")
       .select("*")
-      .eq("reviewer_role", "unit_leader")
-      .order("decision_at", { ascending: false })
+      .neq("overall_status", "cancelled")
       .order("created_at", { ascending: false });
 
-    if (processError) {
-      console.error("Error fetching unit leader process records:", processError);
+    if (bookingsError) {
+      console.error("Error fetching unit leader bookings:", bookingsError);
       return NextResponse.json(
-        { error: "Could not fetch unit leader decision records." },
+        { error: "Could not fetch booking requests." },
         { status: 500 },
       );
     }
 
-    const latestUnitLeaderByBooking = getLatestByBooking(unitLeaderProcesses);
+    const bookingIds = (bookings || []).map((booking) => booking.id);
+    const { data: items, error: itemsError } = bookingIds.length
+      ? await admin.from("equipment_bookings").select("*").in("booking_id", bookingIds)
+      : { data: [], error: null };
 
-    const { data: bookings, error: bookingsError } = await admin
-      .from("bookings")
-      .select(
-        "id, booking_type, item_id, user_id, booking_date, start_time, end_time, status, item_name, grant_number, vot_number, total_price, created_at",
-      );
-
-    if (bookingsError) {
-      console.error("Error fetching unit leader bookings view:", bookingsError);
+    if (itemsError) {
+      console.error("Error fetching unit leader equipment items:", itemsError);
       return NextResponse.json(
-        { error: "Could not fetch booking details." },
+        { error: "Could not fetch request items." },
+        { status: 500 },
+      );
+    }
+
+    const itemIds = (items || []).map((item) => item.id);
+    const { data: processes, error: processesError } = itemIds.length
+      ? await admin
+          .from("booking_process")
+          .select("*")
+          .eq("booking_type", "equipment")
+          .in("booking_id", itemIds)
+      : { data: [], error: null };
+
+    if (processesError) {
+      console.error("Error fetching unit leader process records:", processesError);
+      return NextResponse.json(
+        { error: "Could not fetch review decisions." },
         { status: 500 },
       );
     }
@@ -116,77 +104,53 @@ export async function GET(request) {
     const requesterIds = [
       ...new Set((bookings || []).map((booking) => booking.user_id).filter(Boolean)),
     ];
-
-    const usersResult = requesterIds.length
-      ? await admin
-          .from("users")
-          .select("id, username, email, role")
-          .in("id", requesterIds)
+    const { data: users, error: usersError } = requesterIds.length
+      ? await admin.from("users").select("id, username, email, role").in("id", requesterIds)
       : { data: [], error: null };
 
-    if (usersResult.error) {
-      console.error("Error fetching unit leader requester users:", usersResult.error);
+    if (usersError) {
+      console.error("Error fetching requester users:", usersError);
       return NextResponse.json(
         { error: "Could not fetch requester details." },
         { status: 500 },
       );
     }
 
-    const usersById = new Map((usersResult.data || []).map((user) => [user.id, user]));
-    const statusRank = {
-      Pending: 0,
-      Approved: 1,
-      Rejected: 2,
-    };
+    const usersById = new Map((users || []).map((user) => [user.id, user]));
+    const itemsByBooking = new Map();
 
-    const requests = (bookings || [])
-      .map((booking) => {
-        const sourceId = getBookingSourceId(booking);
-        const key = `${booking.booking_type}-${sourceId}`;
-        const requester = usersById.get(booking.user_id);
-        const unitLeaderProcess = latestUnitLeaderByBooking.get(key);
-        const unitLeaderStatus = toDisplayStatus(unitLeaderProcess?.decision);
+    for (const item of items || []) {
+      itemsByBooking.set(item.booking_id, [...(itemsByBooking.get(item.booking_id) || []), item]);
+    }
 
-        return {
-          id: sourceId,
-          type: booking.booking_type,
-          user_name: requester?.username || "Unknown",
-          booking_date: booking.booking_date,
-          start_time: booking.start_time,
-          end_time: booking.end_time,
-          resource_name: booking.item_name || booking.item_id || "Unknown",
-          grant_number: booking.grant_number || "",
-          vot_number: booking.vot_number || "",
-          total_price: booking.total_price ?? null,
-          created_at: booking.created_at || null,
-          unit_leader_status: unitLeaderStatus,
-          unit_leader_decision_at: unitLeaderProcess?.decision_at || null,
-        };
-      })
-      .filter((requestItem) => Number.isFinite(requestItem.id))
-      .sort((left, right) => {
-        const rankDiff =
-          statusRank[left.unit_leader_status] - statusRank[right.unit_leader_status];
+    const requests = (bookings || []).map((booking) => {
+      const requestItems = itemsByBooking.get(booking.id) || [];
+      const requester = usersById.get(booking.user_id);
+      const startDates = requestItems.map((item) => item.start_date).filter(Boolean).sort();
 
-        if (rankDiff !== 0) return rankDiff;
-
-        const rightDate = new Date(right.booking_date || 0).getTime();
-        const leftDate = new Date(left.booking_date || 0).getTime();
-
-        return rightDate - leftDate;
-      });
+      return {
+        id: booking.id,
+        type: "request",
+        user_name: requester?.username || "Unknown",
+        booking_date: startDates[0] || booking.booking_date,
+        item_count: requestItems.length,
+        study_level: booking.study_level || "",
+        lect_name: booking.lect_name || "",
+        lect_email: booking.lect_email || "",
+        lect_contact: booking.lect_contact || "",
+        vot_number: booking.vot_number || "",
+        total_price: booking.final_total_price ?? null,
+        created_at: booking.created_at || null,
+        overall_status: booking.overall_status,
+        unit_leader_status: getUnitLeaderStatus(requestItems, processes || []),
+      };
+    });
 
     const stats = {
       total: requests.length,
-      pending: requests.filter(
-        (requestItem) => requestItem.unit_leader_status === "Pending",
-      ).length,
-      approved: requests.filter(
-        (requestItem) => requestItem.unit_leader_status === "Approved",
-      ).length,
-      rejected: requests.filter(
-        (requestItem) => requestItem.unit_leader_status === "Rejected",
-      ).length,
+      pending: requests.filter((request) => request.unit_leader_status === "Pending").length,
+      approved: requests.filter((request) => request.unit_leader_status === "Approved").length,
+      rejected: requests.filter((request) => request.unit_leader_status === "Rejected").length,
     };
 
     return NextResponse.json({ requests, stats }, { status: 200 });

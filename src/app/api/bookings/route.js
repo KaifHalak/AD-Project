@@ -1,231 +1,195 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase/supabaseAdmin";
-import { getSupabaseServerClient } from "@/lib/supabase/supabaseServer";
 import {
-  getBookingProcessKey,
-  parseBookingViewId,
-} from "@/lib/bookingViewId";
+  getAccessTokenFromHeader,
+  getRequesterProfile,
+  verifyPicToken,
+} from "@/lib/bookingTokenAuth";
+import { sendBookingSubmittedEmail } from "@/lib/bookingDecisionEmail";
+import {
+  ACTIVE_EQUIPMENT_STATUSES,
+  calculateItemTotal,
+  deriveOverallStatus,
+  findTimetableConflictForItem,
+  getDisplayStatus,
+  hasDateOverlap,
+  validateBookingItem,
+} from "@/lib/bookingRequest";
+import { timeRangesOverlap } from "@/lib/bookingConstraints";
 
-function getAccessTokenFromHeader(request) {
-  const authorizationHeader = request.headers.get("authorization") || "";
-  if (!authorizationHeader.startsWith("Bearer ")) return "";
-  return authorizationHeader.slice(7).trim();
+function groupBy(items, key) {
+  const grouped = new Map();
+
+  for (const item of items || []) {
+    const groupKey = item[key];
+    grouped.set(groupKey, [...(grouped.get(groupKey) || []), item]);
+  }
+
+  return grouped;
 }
 
-async function resolveUserProfile(accessToken) {
-  const supabase = getSupabaseServerClient();
-  const { data: authData, error: authError } =
-    await supabase.auth.getUser(accessToken);
-
-  if (authError || !authData?.user?.email) {
-    return {
-      error: { status: 401, message: "Unauthorized. Please log in again." },
-    };
-  }
-
-  const scopedClient = getSupabaseServerClient(accessToken);
-  const { data: profile, error: profileError } = await scopedClient
-    .from("users")
-    .select("id, email, role")
-    .eq("email", authData.user.email)
-    .maybeSingle();
-
-  if (profileError || !profile) {
-    return { error: { status: 403, message: "Could not verify your account." } };
-  }
-
-  return { profile };
-}
-
-async function enrichBookings(admin, bookings) {
-  const labIds = bookings
-    .filter((booking) => booking.booking_type === "lab")
-    .map((booking) => booking.item_id);
-  const equipmentIds = bookings
-    .filter((booking) => booking.booking_type === "equipment")
-    .map((booking) => booking.item_id);
-
-  const [labsResult, equipmentResult] = await Promise.all([
-    labIds.length
-      ? admin.from("labs").select("id, name, location, course").in("id", labIds)
-      : Promise.resolve({ data: [], error: null }),
-    equipmentIds.length
-      ? admin
-          .from("equipment")
-          .select("id, name, location, course")
-          .in("id", equipmentIds)
-      : Promise.resolve({ data: [], error: null }),
-  ]);
-
-  if (labsResult.error) {
-    console.error("Error enriching lab bookings:", labsResult.error);
-  }
-
-  if (equipmentResult.error) {
-    console.error("Error enriching equipment bookings:", equipmentResult.error);
-  }
-
-  const labsById = new Map((labsResult.data || []).map((lab) => [lab.id, lab]));
-  const equipmentById = new Map(
-    (equipmentResult.data || []).map((equipment) => [equipment.id, equipment]),
-  );
-
-  return bookings.map((booking) => {
-    const item =
-      booking.booking_type === "lab"
-        ? labsById.get(booking.item_id)
-        : equipmentById.get(booking.item_id);
-    const fallbackType = booking.booking_type === "lab" ? "Lab" : "Equipment";
-    const subtitle = [item?.course, item?.location].filter(Boolean).join(" | ");
-
-    return {
-      ...booking,
-      resource_name: item?.name || `${fallbackType} ${booking.item_id}`,
-      resource_subtitle: subtitle || booking.item_id,
-    };
-  });
-}
-
-function getProcessTime(process) {
-  return new Date(process.decision_at || process.created_at || 0).getTime();
-}
-
-function getLatestProcessByRole(processes, reviewerRole) {
-  const latestByBooking = new Map();
-
-  for (const process of processes || []) {
-    if (process.reviewer_role !== reviewerRole) continue;
-
-    const key = getBookingProcessKey(process.booking_type, process.booking_id);
-    const current = latestByBooking.get(key);
-
-    if (!current || getProcessTime(process) > getProcessTime(current)) {
-      latestByBooking.set(key, process);
-    }
-  }
-
-  return latestByBooking;
-}
-
-function deriveBookingStatus(booking, unitLeaderProcess, ppmuProcess) {
-  if (booking.status === "cancelled") {
-    return {
-      display_status: "Cancelled",
-      display_status_type: "cancelled",
-      rejection_reason: "",
-      is_final_approved: false,
-    };
-  }
-
-  if (!unitLeaderProcess) {
-    return {
-      display_status: "Pending Unit Leader Approval",
-      display_status_type: "pending",
-      rejection_reason: "",
-      is_final_approved: false,
-    };
-  }
-
-  if (unitLeaderProcess.decision === "rejected") {
-    return {
-      display_status: "Rejected by Unit Leader",
-      display_status_type: "rejected",
-      rejection_reason:
-        unitLeaderProcess.rejection_reason || unitLeaderProcess.remarks || "",
-      is_final_approved: false,
-    };
-  }
-
-  if (!ppmuProcess) {
-    return {
-      display_status: "Approved by Unit Leader, Pending Approval by PPMU",
-      display_status_type: "pending",
-      rejection_reason: "",
-      is_final_approved: false,
-    };
-  }
-
-  if (ppmuProcess.decision === "rejected") {
-    return {
-      display_status: "Rejected by PPMU",
-      display_status_type: "rejected",
-      rejection_reason: ppmuProcess.rejection_reason || ppmuProcess.remarks || "",
-      is_final_approved: false,
-    };
-  }
-
+function getDateRange(items) {
+  const startDates = (items || []).map((item) => item.start_date).filter(Boolean).sort();
+  const endDates = (items || []).map((item) => item.end_date).filter(Boolean).sort();
   return {
-    display_status: "Approved",
-    display_status_type: "approved",
-    rejection_reason: "",
-    is_final_approved: ppmuProcess.decision === "approved",
+    startDate: startDates[0] || null,
+    endDate: endDates[endDates.length - 1] || null,
   };
 }
 
-async function applyProcessStatuses(admin, bookings) {
-  const parsedBookings = (bookings || [])
-    .map((booking) => ({ booking, parsed: parseBookingViewId(booking.id) }))
-    .filter(({ parsed }) => parsed);
+function getTimeRange(items) {
+  const startTimes = (items || []).map((item) => item.start_time).filter(Boolean).sort();
+  const endTimes = (items || []).map((item) => item.end_time).filter(Boolean).sort();
+  return {
+    startTime: startTimes[0] || null,
+    endTime: endTimes[endTimes.length - 1] || null,
+  };
+}
 
-  if (parsedBookings.length === 0) {
-    return bookings || [];
+async function enrichParentBookings(admin, bookings) {
+  const bookingIds = (bookings || []).map((booking) => booking.id);
+
+  if (bookingIds.length === 0) {
+    return [];
   }
 
-  const bookingTypes = [
-    ...new Set(parsedBookings.map(({ parsed }) => parsed.bookingType)),
-  ];
-  const sourceIds = [
-    ...new Set(parsedBookings.map(({ parsed }) => parsed.sourceId)),
-  ];
-
-  const { data: processes, error } = await admin
-    .from("booking_process")
+  const { data: equipmentBookings, error } = await admin
+    .from("equipment_bookings")
     .select("*")
-    .in("booking_type", bookingTypes)
-    .in("booking_id", sourceIds);
+    .in("booking_id", bookingIds)
+    .order("created_at", { ascending: true });
 
   if (error) {
-    console.error("Error fetching booking process records:", error);
+    console.error("Error loading booking items:", error);
     return (bookings || []).map((booking) => ({
       ...booking,
-      source_status: booking.status,
-      display_status: booking.status || "-",
-      display_status_type: booking.status || "pending",
-      rejection_reason: "",
-      is_final_approved: booking.status === "approved",
+      item_count: 0,
+      items: [],
+      display_status: getDisplayStatus(booking.overall_status),
+      display_status_type: booking.overall_status || "pending",
     }));
   }
 
-  const unitLeaderByBooking = getLatestProcessByRole(processes, "unit_leader");
-  const ppmuByBooking = getLatestProcessByRole(processes, "ppmu");
+  const equipmentIds = [
+    ...new Set((equipmentBookings || []).map((item) => item.equipment_id).filter(Boolean)),
+  ];
+  const labIds = [
+    ...new Set((equipmentBookings || []).map((item) => item.lab_id).filter(Boolean)),
+  ];
+
+  const [equipmentResult, labsResult] = await Promise.all([
+    equipmentIds.length
+      ? admin
+          .from("equipment")
+          .select("id, name, description, course, location, lab_id, price_per_hour, staff_name, staff_email, staff_contact")
+          .in("id", equipmentIds)
+      : Promise.resolve({ data: [], error: null }),
+    labIds.length
+      ? admin.from("labs").select("id, name, course, location").in("id", labIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (equipmentResult.error) {
+    console.error("Error enriching booking equipment:", equipmentResult.error);
+  }
+
+  if (labsResult.error) {
+    console.error("Error enriching booking labs:", labsResult.error);
+  }
+
+  const equipmentById = new Map((equipmentResult.data || []).map((item) => [item.id, item]));
+  const labsById = new Map((labsResult.data || []).map((lab) => [lab.id, lab]));
+  const itemsByBooking = groupBy(equipmentBookings || [], "booking_id");
 
   return (bookings || []).map((booking) => {
-    const parsed = parseBookingViewId(booking.id);
-    const key = parsed
-      ? getBookingProcessKey(parsed.bookingType, parsed.sourceId)
-      : "";
-    const derived = deriveBookingStatus(
-      booking,
-      unitLeaderByBooking.get(key),
-      ppmuByBooking.get(key),
-    );
+    const items = (itemsByBooking.get(booking.id) || []).map((item) => {
+      const equipment = equipmentById.get(item.equipment_id);
+      const lab = labsById.get(item.lab_id);
+
+      return {
+        ...item,
+        equipment_name: equipment?.name || item.equipment_id,
+        equipment_description: equipment?.description || "",
+        lab_name: lab?.name || item.lab_id,
+        course: equipment?.course || lab?.course || "",
+        location: equipment?.location || lab?.location || "",
+        staff_name: equipment?.staff_name || "",
+        staff_email: equipment?.staff_email || "",
+        staff_contact: equipment?.staff_contact || "",
+        price_per_hour: equipment?.price_per_hour ?? null,
+      };
+    });
+    const dates = getDateRange(items);
+    const times = getTimeRange(items);
+    const status = booking.overall_status || deriveOverallStatus(items);
 
     return {
       ...booking,
-      source_status: booking.status,
-      ...derived,
+      item_count: items.length,
+      items,
+      start_date: dates.startDate,
+      end_date: dates.endDate,
+      start_time: times.startTime,
+      end_time: times.endTime,
+      resource_name:
+        items.length === 1
+          ? items[0].equipment_name
+          : `${items.length} equipment items`,
+      resource_subtitle:
+        items.length === 1 ? items[0].lab_name : "Multiple equipment request",
+      total_price: booking.final_total_price,
+      display_status: getDisplayStatus(status),
+      display_status_type: status,
+      source_status: status,
     };
   });
 }
 
-function matchesStatusFilter(booking, statusFilter) {
-  if (!statusFilter || statusFilter === "all") return true;
-  return booking.display_status_type === statusFilter;
+async function findLabConflict(admin, item, requesterId) {
+  const { data: candidates, error } = await admin
+    .from("equipment_bookings")
+    .select("id, booking_id, lab_id, start_date, end_date, start_time, end_time, status")
+    .eq("lab_id", item.labId)
+    .in("status", ACTIVE_EQUIPMENT_STATUSES)
+    .lte("start_date", item.endDate)
+    .gte("end_date", item.startDate);
+
+  if (error) {
+    return { error };
+  }
+
+  if (!candidates?.length) {
+    return { conflict: null };
+  }
+
+  const bookingIds = [...new Set(candidates.map((candidate) => candidate.booking_id))];
+  const { data: parentBookings, error: parentError } = await admin
+    .from("bookings")
+    .select("id, user_id")
+    .in("id", bookingIds);
+
+  if (parentError) {
+    return { error: parentError };
+  }
+
+  const parentById = new Map((parentBookings || []).map((booking) => [booking.id, booking]));
+  const conflict = candidates.find((candidate) => {
+    const parent = parentById.get(candidate.booking_id);
+    if (parent?.user_id === requesterId) return false;
+
+    return (
+      hasDateOverlap(item.startDate, item.endDate, candidate.start_date, candidate.end_date) &&
+      timeRangesOverlap(item.startTime, item.endTime, candidate.start_time, candidate.end_time)
+    );
+  });
+
+  return { conflict: conflict || null };
 }
 
 export async function GET(request) {
   try {
     const accessToken = getAccessTokenFromHeader(request);
+
     if (!accessToken) {
       return NextResponse.json(
         { error: "Unauthorized. Missing access token." },
@@ -233,49 +197,318 @@ export async function GET(request) {
       );
     }
 
-    const { profile, error } = await resolveUserProfile(accessToken);
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
+    const { requester, error: requesterError } = await getRequesterProfile(
+      accessToken,
+      "Unauthorized. Please log in again.",
+    );
+
+    if (requesterError) {
+      return NextResponse.json(
+        { error: requesterError.message },
+        { status: requesterError.status },
+      );
     }
 
     const { searchParams } = new URL(request.url);
-    const typeFilter = searchParams.get("type");
     const statusFilter = searchParams.get("status");
-
     const admin = getSupabaseAdminClient();
     let query = admin
       .from("bookings")
-      .select(
-        "id, booking_type, item_id, user_id, booking_date, start_time, end_time, status, item_name, grant_number, vot_number, total_price, created_at",
-      )
-      .eq("user_id", profile.id)
-      .order("booking_date", { ascending: false })
-      .order("start_time", { ascending: false });
+      .select("*")
+      .eq("user_id", requester.id)
+      .order("created_at", { ascending: false });
 
-    if (typeFilter && typeFilter !== "all") {
-      query = query.eq("booking_type", typeFilter);
+    if (statusFilter && statusFilter !== "all") {
+      query = query.eq("overall_status", statusFilter);
     }
 
-    const { data: bookings, error: fetchError } = await query;
+    const { data: bookings, error } = await query;
 
-    if (fetchError) {
-      console.error("Error fetching bookings:", fetchError);
+    if (error) {
+      console.error("Error fetching bookings:", error);
       return NextResponse.json(
         { error: "Could not fetch bookings." },
         { status: 500 },
       );
     }
 
-    const processBookings = await applyProcessStatuses(admin, bookings || []);
-    const filteredBookings = processBookings.filter((booking) =>
-      matchesStatusFilter(booking, statusFilter),
-    );
-    const enrichedBookings = await enrichBookings(admin, filteredBookings);
+    const enrichedBookings = await enrichParentBookings(admin, bookings || []);
     return NextResponse.json({ bookings: enrichedBookings }, { status: 200 });
   } catch (error) {
     console.error("Error in GET /api/bookings:", error);
     return NextResponse.json(
       { error: "Something went wrong while fetching bookings." },
+      { status: 500 },
+    );
+  }
+}
+
+export async function POST(request) {
+  try {
+    const accessToken = getAccessTokenFromHeader(request);
+
+    if (!accessToken) {
+      return NextResponse.json(
+        { error: "Please log in before submitting a booking." },
+        { status: 401 },
+      );
+    }
+
+    const body = await request.json();
+    const items = Array.isArray(body?.items) ? body.items : [];
+    const requesterIdentifier = String(body?.requesterIdentifier || "").trim();
+    const requesterFaculty = String(body?.requesterFaculty || "").trim();
+    const requesterContact = String(body?.requesterContact || "").trim();
+    const studyLevel = String(body?.studyLevel || body?.study_level || "").trim();
+    const lectName = String(body?.lectName || body?.lect_name || "").trim();
+    const lectEmail = String(body?.lectEmail || body?.lect_email || "").trim();
+    const lectContact = String(body?.lectContact || body?.lect_contact || "").trim();
+    const votNumber = String(body?.votNumber || "").trim();
+    const requestDetails = String(body?.requestDetails || "").trim();
+    const picCode = String(body?.picCode || "").trim().toUpperCase();
+    const allowedStudyLevels = new Set(["diploma", "undergraduate", "postgraduate"]);
+
+    if (items.length === 0) {
+      return NextResponse.json(
+        { error: "Please add at least one equipment item to the request." },
+        { status: 400 },
+      );
+    }
+
+    if (!requesterIdentifier || !requesterFaculty || !requesterContact) {
+      return NextResponse.json(
+        { error: "Please enter your ID, faculty, and contact number." },
+        { status: 400 },
+      );
+    }
+
+    if (!allowedStudyLevels.has(studyLevel)) {
+      return NextResponse.json(
+        { error: "Please select a valid study level." },
+        { status: 400 },
+      );
+    }
+
+    if (!lectName || !lectEmail || !lectContact) {
+      return NextResponse.json(
+        { error: "Please enter lecturer name, email, and contact number." },
+        { status: 400 },
+      );
+    }
+
+    if (!votNumber) {
+      return NextResponse.json(
+        { error: "Please enter your VOT number." },
+        { status: 400 },
+      );
+    }
+
+    const { requester, scopedClient, error: requesterError } =
+      await getRequesterProfile(accessToken, "Please log in before submitting a booking.");
+
+    if (requesterError) {
+      return NextResponse.json(
+        { error: requesterError.message },
+        { status: requesterError.status },
+      );
+    }
+
+    const tokenVerification = await verifyPicToken({
+      scopedClient,
+      requester,
+      picCode,
+    });
+
+    if (tokenVerification.error) {
+      return NextResponse.json(
+        { error: tokenVerification.error.message },
+        { status: tokenVerification.error.status },
+      );
+    }
+
+    const normalizedItems = [];
+    for (const item of items) {
+      const validation = validateBookingItem(item);
+
+      if (validation.error) {
+        return NextResponse.json({ error: validation.error }, { status: 400 });
+      }
+
+      normalizedItems.push(validation.item);
+    }
+
+    const admin = getSupabaseAdminClient();
+    const equipmentIds = [...new Set(normalizedItems.map((item) => item.equipmentId))];
+    const { data: equipmentRows, error: equipmentError } = await admin
+      .from("equipment")
+      .select("id, name, status, lab_id, price_per_hour")
+      .in("id", equipmentIds);
+
+    if (equipmentError) {
+      console.error("Error fetching equipment:", equipmentError);
+      return NextResponse.json(
+        { error: "Could not load equipment details." },
+        { status: 500 },
+      );
+    }
+
+    const equipmentById = new Map((equipmentRows || []).map((item) => [item.id, item]));
+    const preparedItems = [];
+
+    for (const item of normalizedItems) {
+      const equipment = equipmentById.get(item.equipmentId);
+
+      if (!equipment) {
+        return NextResponse.json(
+          { error: `Equipment ${item.equipmentId} was not found.` },
+          { status: 404 },
+        );
+      }
+
+      if (equipment.status === "maintenance") {
+        return NextResponse.json(
+          { error: `${equipment.name || equipment.id} is under maintenance.` },
+          { status: 409 },
+        );
+      }
+
+      const preparedItem = {
+        ...item,
+        labId: equipment.lab_id,
+        equipmentName: equipment.name,
+        totalPrice: calculateItemTotal({
+          pricePerHour: equipment.price_per_hour,
+          startTime: item.startTime,
+          endTime: item.endTime,
+          dayCount: item.bookingDates.length,
+        }),
+      };
+      const timetableConflict = findTimetableConflictForItem(preparedItem);
+
+      if (timetableConflict) {
+        return NextResponse.json(
+          {
+            error: `${timetableConflict.date} clashes with scheduled class: ${timetableConflict.conflict.title}.`,
+          },
+          { status: 409 },
+        );
+      }
+
+      const { conflict, error: conflictError } = await findLabConflict(
+        admin,
+        preparedItem,
+        requester.id,
+      );
+
+      if (conflictError) {
+        console.error("Error checking final availability:", conflictError);
+        return NextResponse.json(
+          { error: "Could not check lab availability." },
+          { status: 500 },
+        );
+      }
+
+      if (conflict) {
+        return NextResponse.json(
+          {
+            error: `${equipment.name || equipment.id} is no longer available for the selected date and time.`,
+          },
+          { status: 409 },
+        );
+      }
+
+      preparedItems.push(preparedItem);
+    }
+
+    const finalTotalPrice = preparedItems.reduce(
+      (sum, item) => sum + Number(item.totalPrice || 0),
+      0,
+    );
+    const firstDate = [...preparedItems.map((item) => item.startDate)].sort()[0] || null;
+    const { data: parentBooking, error: parentError } = await admin
+      .from("bookings")
+      .insert({
+        user_id: requester.id,
+        booking_date: firstDate,
+        requester_contact: requesterContact,
+        requester_faculty: requesterFaculty,
+        requester_identifier: requesterIdentifier,
+        study_level: studyLevel,
+        lect_name: lectName,
+        lect_email: lectEmail,
+        lect_contact: lectContact,
+        vot_number: votNumber,
+        final_total_price: Number(finalTotalPrice.toFixed(2)),
+        request_details: requestDetails,
+        token: requester.role === "pic" ? null : picCode,
+        overall_status: "pending",
+      })
+      .select("*")
+      .maybeSingle();
+
+    if (parentError || !parentBooking) {
+      console.error("Error creating parent booking:", parentError);
+      return NextResponse.json(
+        { error: "Booking failed. Please try again." },
+        { status: 500 },
+      );
+    }
+
+    const insertRows = preparedItems.map((item) => ({
+      booking_id: parentBooking.id,
+      equipment_id: item.equipmentId,
+      lab_id: item.labId,
+      start_date: item.startDate,
+      end_date: item.endDate,
+      start_time: item.startTime,
+      end_time: item.endTime,
+      booking_reason: item.bookingReason,
+      status: "pending",
+      total_price: item.totalPrice,
+    }));
+
+    const { data: equipmentBookings, error: insertError } = await admin
+      .from("equipment_bookings")
+      .insert(insertRows)
+      .select("*");
+
+    if (insertError) {
+      console.error("Error creating equipment bookings:", insertError);
+      await admin.from("bookings").delete().eq("id", parentBooking.id);
+      return NextResponse.json(
+        { error: "Booking failed. Please try again." },
+        { status: 500 },
+      );
+    }
+
+    const notification = await sendBookingSubmittedEmail({
+      booking: {
+        booking_type: "equipment",
+        item_id: parentBooking.id,
+        item_name:
+          preparedItems.length === 1
+            ? preparedItems[0].equipmentName
+            : `${preparedItems.length} equipment items`,
+        booking_date: firstDate,
+        start_time: preparedItems[0]?.startTime || "",
+        end_time: preparedItems[0]?.endTime || "",
+      },
+      requester,
+    });
+
+    return NextResponse.json(
+      {
+        message: "Booking request submitted. Waiting for approval.",
+        booking: parentBooking,
+        equipmentBookings: equipmentBookings || [],
+        notification,
+      },
+      { status: 201 },
+    );
+  } catch (error) {
+    console.error("Error in POST /api/bookings:", error);
+    return NextResponse.json(
+      { error: "Unexpected error while submitting the booking." },
       { status: 500 },
     );
   }

@@ -6,17 +6,19 @@ import { useEffect, useState } from "react";
 import { getCurrentSession, getCurrentUser } from "@/lib/supabase/auth";
 import { getRecordByColumn } from "@/lib/supabase/db";
 import { fetchVerificationStatus } from "@/lib/verificationClient";
+import { getStoredBookingRequestItems } from "@/lib/bookingRequest";
 
 export default function AppNavbar() {
   const pathname = usePathname();
   const [hasActiveVerification, setHasActiveVerification] = useState(false);
   const [role, setRole] = useState("");
+  const [bookingRequestCount, setBookingRequestCount] = useState(0);
 
   const accountActive = pathname.startsWith("/account");
   const ppmuActive = pathname.startsWith("/PPMU");
   const unitLeaderActive = pathname.startsWith("/unit-leader");
-  const labBooking = pathname.startsWith("/lab-booking");
-  const equipmentBooking = pathname.startsWith("/equipment-booking");
+  const bookingActive = pathname.startsWith("/booking");
+  const completeBookingActive = pathname.startsWith("/complete-booking");
   const bookingRecordsActive = pathname.startsWith("/booking-records");
 
   useEffect(() => {
@@ -101,6 +103,24 @@ export default function AppNavbar() {
     };
   }, [pathname]);
 
+  useEffect(() => {
+    function refreshBookingRequestCount() {
+      setBookingRequestCount(getStoredBookingRequestItems().length);
+    }
+
+    refreshBookingRequestCount();
+    window.addEventListener("booking-request-updated", refreshBookingRequestCount);
+    window.addEventListener("storage", refreshBookingRequestCount);
+
+    return () => {
+      window.removeEventListener(
+        "booking-request-updated",
+        refreshBookingRequestCount,
+      );
+      window.removeEventListener("storage", refreshBookingRequestCount);
+    };
+  }, []);
+
   // Keep login and registration screens focused by hiding global navigation.
   if (pathname === "/" || pathname === "/register") {
     return null;
@@ -152,24 +172,35 @@ export default function AppNavbar() {
           ) : null}
 
           <Link
-            href="/lab-booking"
+            href="/booking"
             className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
-              labBooking
+              bookingActive && !bookingRecordsActive
                 ? "border-primary bg-primary text-white"
                 : "border-border-light bg-white text-text-main hover:bg-background-main"
             }`}
           >
-            Lab Booking
+            Booking
           </Link>
           <Link
-            href="/equipment-booking"
+            href="/complete-booking"
             className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
-              equipmentBooking
+              completeBookingActive
                 ? "border-primary bg-primary text-white"
                 : "border-border-light bg-white text-text-main hover:bg-background-main"
             }`}
           >
-            Equipment Booking
+            Complete Booking
+            {bookingRequestCount > 0 ? (
+              <span
+                className={`ml-2 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  completeBookingActive
+                    ? "bg-white text-primary"
+                    : "bg-primary text-white"
+                }`}
+              >
+                {bookingRequestCount}
+              </span>
+            ) : null}
           </Link>
           <Link
             href="/booking-records"

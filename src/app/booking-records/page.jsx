@@ -3,43 +3,43 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Calendar, Clock, FileText, X } from "lucide-react";
+import { Calendar, Clock, FileText, PackageCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Loader from "@/components/loader";
 import { getCurrentSession } from "@/lib/supabase/auth";
+import { formatRmFromUsd } from "@/lib/currency";
 
 function formatDate(dateString) {
-  if (!dateString) return "";
-  const date = new Date(dateString + "T00:00:00");
+  if (!dateString) return "-";
+  const date = new Date(`${dateString}T00:00:00`);
   return date.toLocaleDateString("en-US", {
-    weekday: "long",
     year: "numeric",
-    month: "long",
+    month: "short",
     day: "numeric",
   });
 }
 
 function formatTime(timeString) {
-  if (!timeString) return "";
-  return timeString.slice(0, 5);
+  return timeString ? String(timeString).slice(0, 5) : "-";
 }
 
-function getTypeLabel(type) {
-  return type === "lab" ? "Lab" : "Equipment";
+function formatStudyLevel(value) {
+  if (!value) return "-";
+  return String(value).replaceAll("_", " ").replace(/^\w/, (char) => char.toUpperCase());
 }
 
 function getStatusStyles(status) {
   switch (status) {
     case "approved":
       return "border-green-300 bg-green-50 text-green-700";
-    case "pending":
-      return "border-purple-200 bg-purple-50 text-purple-700";
+    case "partially_approved":
+      return "border-blue-200 bg-blue-50 text-blue-700";
     case "cancelled":
       return "border-border-light bg-background-main text-text-muted";
     case "rejected":
       return "border-warning/20 bg-white text-warning";
     default:
-      return "border-border-light bg-white text-text-muted";
+      return "border-primary/20 bg-primary/10 text-primary";
   }
 }
 
@@ -49,31 +49,23 @@ export default function BookingRecordsPage() {
   const [bookings, setBookings] = useState([]);
   const [errorMessage, setErrorMessage] = useState("");
   const [accessToken, setAccessToken] = useState("");
-  const [selectedTypeFilter, setSelectedTypeFilter] = useState("all");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState("all");
   const [bookingToCancel, setBookingToCancel] = useState(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState("");
 
-  const fetchBookings = useCallback(async (token, typeFilter, statusFilter) => {
+  const fetchBookings = useCallback(async (token, statusFilter) => {
     try {
       setErrorMessage("");
       const params = new URLSearchParams();
-
-      if (typeFilter && typeFilter !== "all") {
-        params.set("type", typeFilter);
-      }
 
       if (statusFilter && statusFilter !== "all") {
         params.set("status", statusFilter);
       }
 
-      const queryString = params.toString();
       const response = await fetch(
-        `/api/bookings${queryString ? `?${queryString}` : ""}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
+        `/api/bookings${params.toString() ? `?${params}` : ""}`,
+        { headers: { Authorization: `Bearer ${token}` } },
       );
       const data = await response.json();
 
@@ -93,28 +85,19 @@ export default function BookingRecordsPage() {
 
     async function init() {
       setIsLoading(true);
+      const { data: sessionData } = await getCurrentSession();
 
-      try {
-        const { data: sessionData } = await getCurrentSession();
-        if (!isMounted) return;
+      if (!isMounted) return;
 
-        if (!sessionData?.session) {
-          router.push("/");
-          return;
-        }
-
-        const token = sessionData.session.access_token;
-        setAccessToken(token);
-        await fetchBookings(token, "all", "all");
-      } catch {
-        if (isMounted) {
-          setErrorMessage("Something went wrong. Please try again.");
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
+      if (!sessionData?.session) {
+        router.push("/");
+        return;
       }
+
+      const token = sessionData.session.access_token;
+      setAccessToken(token);
+      await fetchBookings(token, "all");
+      setIsLoading(false);
     }
 
     init();
@@ -124,23 +107,11 @@ export default function BookingRecordsPage() {
     };
   }, [router, fetchBookings]);
 
-  function handleTypeFilterChange(filter) {
-    setSelectedTypeFilter(filter);
-    if (accessToken) {
-      fetchBookings(accessToken, filter, selectedStatusFilter);
-    }
-  }
-
   function handleStatusFilterChange(filter) {
     setSelectedStatusFilter(filter);
     if (accessToken) {
-      fetchBookings(accessToken, selectedTypeFilter, filter);
+      fetchBookings(accessToken, filter);
     }
-  }
-
-  function handleCancelClick(booking) {
-    setBookingToCancel(booking);
-    setCancelError("");
   }
 
   async function handleConfirmCancel() {
@@ -165,25 +136,8 @@ export default function BookingRecordsPage() {
         return;
       }
 
-      setBookings((currentBookings) =>
-        currentBookings.map((booking) =>
-          booking.id === bookingToCancel.id
-            ? {
-                ...booking,
-                status: "cancelled",
-                source_status: "cancelled",
-                display_status: "Cancelled",
-                display_status_type: "cancelled",
-                is_final_approved: false,
-              }
-            : booking,
-        ).filter(
-          (booking) =>
-            selectedStatusFilter === "all" ||
-            booking.display_status_type === selectedStatusFilter,
-        ),
-      );
       setBookingToCancel(null);
+      await fetchBookings(accessToken, selectedStatusFilter);
     } catch {
       setCancelError("Something went wrong. Please try again.");
     } finally {
@@ -195,176 +149,132 @@ export default function BookingRecordsPage() {
     return <Loader text="Loading booking records..." />;
   }
 
-  const activeCancellableStatuses = ["pending", "approved"];
-
   return (
-    <main className="min-h-full bg-background-main px-3 py-4 md:px-6 md:py-6">
-      <section className="min-h-[calc(100vh-7rem)] w-full rounded-2xl border border-border-light bg-background-main p-5 md:p-8">
-        <div className="space-y-6">
-          <div className="text-center">
-            <h1 className="text-3xl font-semibold text-primary">
-              Booking Records
-            </h1>
+    <main className="min-h-full bg-background-main px-4 py-6 md:px-7 md:py-8">
+      <section className="mx-auto max-w-7xl space-y-7">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h1 className="text-3xl font-semibold text-primary">Booking Records</h1>
             <p className="mt-2 text-sm text-text-muted">
-              View and manage your lab and equipment booking requests.
+              View and manage submitted booking requests.
             </p>
           </div>
 
-          <div className="rounded-xl border border-border-light bg-white p-4 md:p-5">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <label className="flex flex-col gap-2 text-sm font-semibold text-text-main sm:w-64">
-                Filter by Type
-                <select
-                  value={selectedTypeFilter}
-                  onChange={(event) => handleTypeFilterChange(event.target.value)}
-                  className="h-11 rounded-xl border border-border-light bg-white px-3 text-sm font-normal text-text-main outline-none transition-colors focus:border-primary"
-                >
-                  <option value="all">All Bookings</option>
-                  <option value="lab">Lab Bookings</option>
-                  <option value="equipment">Equipment Bookings</option>
-                </select>
-              </label>
-
-              <label className="flex flex-col gap-2 text-sm font-semibold text-text-main sm:w-64">
-                Filter by Status
-                <select
-                  value={selectedStatusFilter}
-                  onChange={(event) => handleStatusFilterChange(event.target.value)}
-                  className="h-11 rounded-xl border border-border-light bg-white px-3 text-sm font-normal text-text-main outline-none transition-colors focus:border-primary"
-                >
-                  <option value="all">All Statuses</option>
-                  <option value="pending">Pending</option>
-                  <option value="approved">Approved</option>
-                  <option value="rejected">Rejected</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-              </label>
-
-              <p className="text-sm text-text-muted">
-                Showing {bookings.length} booking
-                {bookings.length === 1 ? "" : "s"}
-              </p>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-border-light bg-white p-4 text-sm text-text-muted md:p-5">
-            <p className="font-semibold text-primary">Status guide</p>
-            <div className="mt-2 grid gap-2 md:grid-cols-4">
-              <p><span className="font-semibold text-text-main">Unit Leader:</span> first approval stage.</p>
-              <p><span className="font-semibold text-text-main">PPMU:</span> final approval stage.</p>
-              <p><span className="font-semibold text-text-main">Approved:</span> both stages approved.</p>
-              <p><span className="font-semibold text-text-main">Cancelled:</span> no longer active.</p>
-            </div>
-          </div>
-
-          {errorMessage ? (
-            <p className="rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
-              {errorMessage}
-            </p>
-          ) : null}
-
-          <div className="space-y-4">
-            {bookings.map((booking) => (
-              <article
-                key={booking.id}
-                className="rounded-xl border border-border-light bg-white p-4 md:p-6"
-              >
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0 space-y-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full border border-border-light bg-background-main px-3 py-1 text-xs font-semibold uppercase text-text-muted">
-                        {getTypeLabel(booking.booking_type)}
-                      </span>
-                      <span
-                        className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${getStatusStyles(booking.display_status_type)}`}
-                      >
-                        {booking.display_status || "-"}
-                      </span>
-                    </div>
-
-                    <div>
-                      <h2 className="text-xl font-semibold text-text-main">
-                        {booking.resource_name}
-                      </h2>
-                      <p className="mt-1 text-sm text-text-muted">
-                        ID: {booking.item_id}
-                        {booking.resource_subtitle
-                          ? ` | ${booking.resource_subtitle}`
-                          : ""}
-                      </p>
-                    </div>
-
-                    <div className="grid gap-3 text-sm text-text-main md:grid-cols-2">
-                      <p className="flex items-center gap-2">
-                        <Calendar className="h-4 w-4 text-text-muted" />
-                        {formatDate(booking.booking_date)}
-                      </p>
-                      <p className="flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-text-muted" />
-                        {formatTime(booking.start_time)} - {formatTime(booking.end_time)}
-                      </p>
-                    </div>
-
-                    {booking.rejection_reason ? (
-                      <p className="rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
-                        Reason: {booking.rejection_reason}
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
-                    <Link
-                      href={`/booking-records/${encodeURIComponent(booking.id)}`}
-                      className="inline-flex h-11 items-center justify-center rounded-xl border border-border-light bg-white px-4 text-base font-semibold text-text-main transition-colors hover:bg-background-main"
-                    >
-                      View Details
-                    </Link>
-
-                    {booking.is_final_approved ? (
-                      <Link
-                        href={
-                          booking.booking_type === "lab"
-                            ? `/lab-booking/${encodeURIComponent(booking.item_id)}?date=${booking.booking_date}&start=${formatTime(booking.start_time)}&end=${formatTime(booking.end_time)}&rescheduleFrom=${booking.id}`
-                            : `/equipment-booking/${encodeURIComponent(booking.item_id)}?date=${booking.booking_date}&start=${formatTime(booking.start_time)}&end=${formatTime(booking.end_time)}&rescheduleFrom=${booking.id}`
-                        }
-                        className="inline-flex h-11 items-center justify-center rounded-xl bg-primary px-4 text-base font-semibold text-white transition-colors hover:bg-primary-hover"
-                      >
-                        Reschedule
-                      </Link>
-                    ) : null}
-
-                    {activeCancellableStatuses.includes(
-                      booking.source_status || booking.status,
-                    ) && booking.display_status_type !== "rejected" ? (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={() => handleCancelClick(booking)}
-                        className="md:w-auto"
-                      >
-                        Cancel
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-
-          {bookings.length === 0 && !errorMessage ? (
-            <div className="rounded-xl border border-border-light bg-white px-4 py-10 text-center">
-              <FileText className="mx-auto h-10 w-10 text-primary" />
-              <p className="mt-3 font-semibold text-text-main">
-                No bookings found
-              </p>
-              <p className="mt-1 text-sm text-text-muted">
-                {selectedTypeFilter === "all" && selectedStatusFilter === "all"
-                  ? "You have not made any bookings yet."
-                  : "No bookings match the selected filters."}
-              </p>
-            </div>
-          ) : null}
+          <label className="flex flex-col gap-2 text-sm font-semibold text-text-main sm:w-64">
+            Filter by Status
+            <select
+              value={selectedStatusFilter}
+              onChange={(event) => handleStatusFilterChange(event.target.value)}
+              className="h-11 rounded-xl border border-border-light bg-white px-3 text-sm font-normal text-text-main outline-none transition-colors focus:border-primary"
+            >
+              <option value="all">All Statuses</option>
+              <option value="pending">Pending</option>
+              <option value="partially_approved">Partially Approved</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </label>
         </div>
+
+        {errorMessage ? (
+          <p className="rounded-xl border border-warning/20 bg-white px-4 py-3 text-sm text-warning">
+            {errorMessage}
+          </p>
+        ) : null}
+
+        <div className="space-y-4">
+          {bookings.map((booking) => (
+            <article
+              key={booking.id}
+              className="rounded-2xl border border-border-light bg-white p-5 shadow-sm"
+            >
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0 space-y-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-border-light bg-background-main px-3 py-1 text-xs font-semibold uppercase text-text-muted">
+                      Request #{booking.id}
+                    </span>
+                    <span
+                      className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${getStatusStyles(
+                        booking.display_status_type,
+                      )}`}
+                    >
+                      {booking.display_status || "-"}
+                    </span>
+                  </div>
+
+                  <div>
+                    <h2 className="text-xl font-semibold text-text-main">
+                      {booking.resource_name}
+                    </h2>
+                    <p className="mt-1 text-sm text-text-muted">
+                      {booking.resource_subtitle} | VOT {booking.vot_number || "-"} |
+                      Study Level {formatStudyLevel(booking.study_level)}
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 text-sm text-text-main md:grid-cols-3">
+                    <p className="flex items-center gap-2">
+                      <PackageCheck className="h-4 w-4 text-text-muted" />
+                      {booking.item_count} item{booking.item_count === 1 ? "" : "s"}
+                    </p>
+                    <p className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-text-muted" />
+                      {formatDate(booking.start_date)}
+                      {booking.end_date && booking.end_date !== booking.start_date
+                        ? ` - ${formatDate(booking.end_date)}`
+                        : ""}
+                    </p>
+                    <p className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-text-muted" />
+                      {formatTime(booking.start_time)} - {formatTime(booking.end_time)}
+                    </p>
+                  </div>
+
+                  <p className="text-sm font-semibold text-primary">
+                    {formatRmFromUsd(booking.total_price || 0)}
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
+                  <Link
+                    href={`/booking-records/${encodeURIComponent(booking.id)}`}
+                    className="inline-flex h-11 items-center justify-center rounded-xl border border-border-light bg-white px-4 text-base font-semibold text-text-main transition-colors hover:bg-background-main"
+                  >
+                    View Details
+                  </Link>
+
+                  {["pending", "partially_approved", "approved"].includes(
+                    booking.display_status_type,
+                  ) ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => {
+                        setBookingToCancel(booking);
+                        setCancelError("");
+                      }}
+                      className="md:w-auto"
+                    >
+                      Cancel
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        {bookings.length === 0 && !errorMessage ? (
+          <div className="rounded-2xl border border-border-light bg-white px-4 py-10 text-center">
+            <FileText className="mx-auto h-10 w-10 text-primary" />
+            <p className="mt-3 font-semibold text-text-main">No bookings found</p>
+            <p className="mt-1 text-sm text-text-muted">
+              Your submitted booking requests will appear here.
+            </p>
+          </div>
+        ) : null}
       </section>
 
       {bookingToCancel ? (
@@ -376,8 +286,7 @@ export default function BookingRecordsPage() {
                   Cancel Booking
                 </h2>
                 <p className="mt-2 text-sm text-text-main">
-                  Cancel {bookingToCancel.resource_name} on{" "}
-                  {formatDate(bookingToCancel.booking_date)}?
+                  Cancel request #{bookingToCancel.id}?
                 </p>
               </div>
               <button

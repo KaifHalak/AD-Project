@@ -5,20 +5,6 @@ import { useRouter } from "next/navigation";
 import { getCurrentSession } from "@/lib/supabase/auth";
 import { formatRmFromUsd } from "@/lib/currency";
 
-function formatTime(timeValue) {
-  if (!timeValue) return "-";
-
-  const [hours = "0", minutes = "0"] = String(timeValue).split(":");
-  const date = new Date();
-  date.setHours(Number(hours), Number(minutes), 0, 0);
-
-  return date.toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-}
-
 function formatDateTime(dateTimeValue) {
   if (!dateTimeValue) return "-";
 
@@ -36,6 +22,11 @@ function formatPrice(value) {
   return value === null || value === undefined ? "-" : formatRmFromUsd(value);
 }
 
+function formatStudyLevel(value) {
+  if (!value) return "-";
+  return String(value).replaceAll("_", " ").replace(/^\w/, (char) => char.toUpperCase());
+}
+
 export default function ApprovalPage() {
   const [data, setData] = useState([]);
   const router = useRouter();
@@ -47,7 +38,6 @@ export default function ApprovalPage() {
     rejected: 0,
   });
   const [searchTerm, setSearchTerm] = useState("");
-  const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [errorMessage, setErrorMessage] = useState("");
   const [sortConfig, setSortConfig] = useState({
@@ -59,16 +49,14 @@ export default function ApprovalPage() {
     // Search filter
     const matchesSearch =
       item.user_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.lect_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       String(item.id).includes(searchTerm);
-
-    // Type filter
-    const matchesType = typeFilter === "All" || item.type === typeFilter;
 
     // Status filter
     const matchesStatus =
       statusFilter === "All" || item.ppmu_status === statusFilter;
 
-    return matchesSearch && matchesType && matchesStatus;
+    return matchesSearch && matchesStatus;
   });
   const sortedData = [...filteredData].sort((left, right) => {
     const leftValue = getSortValue(left, sortConfig.key, "ppmu_status");
@@ -215,19 +203,6 @@ export default function ApprovalPage() {
               className="w-full p-3 border border-[#ddd6cc] rounded-xl bg-[#f3efe9] outline-none placeholder:text-gray-400"
             />
 
-            {/* TYPE FILTER */}
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="w-full p-3 border border-[#ddd6cc] rounded-xl bg-[#f3efe9] cursor-pointer"
-            >
-              <option value="All">All Types</option>
-
-              <option value="equipment">Equipment</option>
-
-              <option value="lab">Lab</option>
-            </select>
-
             {/* STATUS FILTER */}
             <select
               value={statusFilter}
@@ -237,6 +212,7 @@ export default function ApprovalPage() {
               <option value="All">All Status</option>
 
               <option value="Pending">Pending</option>
+              <option value="Partially Reviewed">Partially Reviewed</option>
 
               <option value="Approved">Approved</option>
 
@@ -247,7 +223,6 @@ export default function ApprovalPage() {
             <button
               onClick={() => {
                 setSearchTerm("");
-                setTypeFilter("All");
                 setStatusFilter("All");
               }}
               className="w-full bg-[#f3efe9] p-3 rounded-xl font-medium cursor-pointer hover:bg-[#9f9993] transition"
@@ -260,7 +235,7 @@ export default function ApprovalPage() {
           <div className="bg-white rounded-2xl overflow-hidden w-full">
             {/* SCROLL CONTAINER */}
             <div className="max-h-[520px] overflow-y-auto overflow-x-auto">
-              <table className="w-full text-sm min-w-[1350px]">
+              <table className="w-full text-sm min-w-[1550px]">
                 {/* STICKY HEADER */}
                 <thead className="sticky top-0 bg-[#f2f2f2] text-gray-600 z-10">
                   <tr>
@@ -271,14 +246,20 @@ export default function ApprovalPage() {
                       onSort={handleSort}
                     />
                     <SortableHeader
-                      label="TYPE"
-                      column="type"
+                      label="USER NAME"
+                      column="user_name"
                       sortConfig={sortConfig}
                       onSort={handleSort}
                     />
                     <SortableHeader
-                      label="USER NAME"
-                      column="user_name"
+                      label="STUDY LEVEL"
+                      column="study_level"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
+                    <SortableHeader
+                      label="LECTURER"
+                      column="lect_name"
                       sortConfig={sortConfig}
                       onSort={handleSort}
                     />
@@ -294,11 +275,9 @@ export default function ApprovalPage() {
                       sortConfig={sortConfig}
                       onSort={handleSort}
                     />
-                    <th className="p-4 text-left">START</th>
-                    <th className="p-4 text-left">END</th>
                     <SortableHeader
-                      label="ITEM"
-                      column="resource_name"
+                      label="ITEMS"
+                      column="item_count"
                       sortConfig={sortConfig}
                       onSort={handleSort}
                     />
@@ -331,13 +310,17 @@ export default function ApprovalPage() {
                       className="border-t hover:bg-gray-50"
                     >
                       <td className="p-4">{item.id}</td>
-                      <td className="p-4">{item.type}</td>
                       <td className="p-4">{item.user_name}</td>
+                      <td className="p-4">{formatStudyLevel(item.study_level)}</td>
+                      <td className="p-4">
+                        <div className="font-medium">{item.lect_name || "-"}</div>
+                        <div className="text-xs text-gray-500">
+                          {item.lect_email || "-"}
+                        </div>
+                      </td>
                       <td className="p-4">{formatDateTime(item.created_at)}</td>
                       <td className="p-4">{item.booking_date}</td>
-                      <td className="p-4">{formatTime(item.start_time)}</td>
-                      <td className="p-4">{formatTime(item.end_time)}</td>
-                      <td className="p-4">{item.resource_name}</td>
+                      <td className="p-4">{item.item_count}</td>
                       <td className="p-4">{formatPrice(item.total_price)}</td>
 
                       {/* UNIT LEADER */}
@@ -355,7 +338,7 @@ export default function ApprovalPage() {
                         {item.unit_leader_status === "Approved" && (
                           <button
                             onClick={() =>
-                              router.push(`/PPMU/${item.type}/${item.id}`)
+                              router.push(`/PPMU/request/${item.id}`)
                             }
                             className="bg-[#b0125b] text-white px-4 py-2 rounded-lg cursor-pointer hover:opacity-80 transition"
                           >
