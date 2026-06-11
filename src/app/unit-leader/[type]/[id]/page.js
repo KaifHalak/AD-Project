@@ -2,9 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, MapPin } from "lucide-react";
+import { ArrowLeft, UserRound } from "lucide-react";
 import { getCurrentSession } from "@/lib/supabase/auth";
 import { formatRmFromUsd } from "@/lib/currency";
+
+function formatDate(dateString) {
+  if (!dateString) return "-";
+  return new Date(`${dateString}T00:00:00`).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
 
 function formatTime(timeValue) {
   return timeValue ? String(timeValue).slice(0, 5) : "-";
@@ -22,12 +31,32 @@ function formatDecision(process) {
 
 function statusClass(status) {
   switch (status) {
+    case "pending_unit_leader_process":
+      return "border-primary/20 bg-primary/10 text-primary";
+    case "pending_ppmu_process":
+      return "border-blue-200 bg-blue-50 text-blue-700";
+    case "processed":
     case "approved":
-      return "bg-green-100 text-green-700";
+      return "border-green-200 bg-green-50 text-green-700";
     case "rejected":
-      return "bg-red-100 text-red-700";
+      return "border-red-200 bg-red-50 text-red-700";
+    case "cancelled":
+      return "border-border-light bg-background-main text-text-muted";
+    case "partially_approved":
+      return "border-blue-200 bg-blue-50 text-blue-700";
     default:
-      return "bg-primary/10 text-primary";
+      return "border-primary/20 bg-primary/10 text-primary";
+  }
+}
+
+function itemCardClass(item) {
+  switch (item.unit_leader_process?.decision) {
+    case "approved":
+      return "border-green-200 bg-green-50/70";
+    case "rejected":
+      return "border-red-200 bg-red-50/70";
+    default:
+      return "border-border-light bg-white";
   }
 }
 
@@ -38,6 +67,7 @@ export default function UnitLeaderRequestDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [bulkRemarks, setBulkRemarks] = useState("");
   const [remarksByItem, setRemarksByItem] = useState({});
 
   const getAccessToken = useCallback(async () => {
@@ -120,6 +150,58 @@ export default function UnitLeaderRequestDetailPage() {
     }
   }
 
+  async function handleBulkDecision(decision) {
+    const reviewableItems = (data?.items || []).filter((item) => item.can_review);
+
+    if (reviewableItems.length === 0) {
+      setErrorMessage("There are no equipment items available for review.");
+      return;
+    }
+
+    setIsSubmitting(`bulk-${decision}`);
+    setErrorMessage("");
+
+    try {
+      const accessToken = await getAccessToken();
+
+      if (!accessToken) {
+        router.push("/");
+        return;
+      }
+
+      for (const item of reviewableItems) {
+        const response = await fetch(`/api/unit-leader/${type}/${id}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            itemId: item.id,
+            decision,
+            remarks: bulkRemarks,
+          }),
+        });
+        const responseData = await response.json();
+
+        if (!response.ok) {
+          setErrorMessage(
+            responseData?.error || "Could not save all decisions.",
+          );
+          return;
+        }
+      }
+
+      setBulkRemarks("");
+      await fetchData();
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("Server error while saving all decisions.");
+    } finally {
+      setIsSubmitting("");
+    }
+  }
+
   if (isLoading) {
     return <div className="min-h-screen bg-background-main p-8">Loading...</div>;
   }
@@ -134,6 +216,9 @@ export default function UnitLeaderRequestDetailPage() {
     );
   }
 
+  const reviewableItems = data.items.filter((item) => item.can_review);
+  const reviewableCount = reviewableItems.length;
+
   return (
     <main className="min-h-screen bg-background-main px-4 py-6 md:px-8">
       <section className="mx-auto max-w-7xl space-y-6">
@@ -146,13 +231,31 @@ export default function UnitLeaderRequestDetailPage() {
           Back
         </button>
 
-        <div>
-          <h1 className="text-3xl font-semibold text-text-main">
-            Request #{data.id}
-          </h1>
-          <p className="mt-2 text-sm text-text-muted">
-            {data.user_name} | {data.user_email} | VOT {data.vot_number || "-"}
-          </p>
+        <div className="rounded-2xl border border-border-light bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <span className="rounded-full border border-border-light bg-background-main px-3 py-1 text-xs font-semibold uppercase text-text-muted">
+                Request #{data.id}
+              </span>
+              <span
+                className={`ml-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase ${statusClass(
+                  data.display_status_type,
+                )}`}
+              >
+                {data.display_status || "-"}
+              </span>
+              <h1 className="mt-4 text-3xl font-semibold text-text-main">
+                {data.item_count} equipment item
+                {data.item_count === 1 ? "" : "s"}
+              </h1>
+            </div>
+            <div className="text-left md:text-right">
+              <p className="text-sm text-text-muted">Total</p>
+              <p className="text-3xl font-semibold text-primary">
+                {formatRmFromUsd(data.total_price || 0)}
+              </p>
+            </div>
+          </div>
         </div>
 
         {errorMessage ? (
@@ -163,6 +266,9 @@ export default function UnitLeaderRequestDetailPage() {
 
         <div className="space-y-5">
           <DetailSection title="User Details">
+            <Info label="Username" value={data.user_name || "-"} />
+            <Info label="Role" value={data.user_role || "-"} />
+            <Info label="Email" value={data.user_email || "-"} />
             <Info label="User ID" value={data.requester_identifier || "-"} />
             <Info label="Faculty" value={data.requester_faculty || "-"} />
             <Info label="Contact" value={data.requester_contact || "-"} />
@@ -173,6 +279,13 @@ export default function UnitLeaderRequestDetailPage() {
             <Info label="Lecturer Name" value={data.lect_name || "-"} />
             <Info label="Lecturer Email" value={data.lect_email || "-"} />
             <Info label="Lecturer Contact" value={data.lect_contact || "-"} />
+            <Info label="VOT Number" value={data.vot_number || "-"} />
+          </DetailSection>
+
+          <DetailSection title="PIC Details">
+            <Info label="PIC Token" value={data.pic_token || "-"} />
+            <Info label="PIC Name" value={data.pic_name || "-"} />
+            <Info label="PIC Email" value={data.pic_email || "-"} />
           </DetailSection>
 
           <DetailSection title="Request Details">
@@ -180,85 +293,161 @@ export default function UnitLeaderRequestDetailPage() {
           </DetailSection>
         </div>
 
+        <section className="rounded-2xl border border-border-light bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold uppercase text-primary">
+                Bulk Review
+              </h2>
+              <p className="mt-1 text-sm text-text-muted">
+                {reviewableCount} equipment item
+                {reviewableCount === 1 ? "" : "s"} available for review.
+              </p>
+            </div>
+            <div className="flex gap-3 lg:min-w-80">
+              <button
+                type="button"
+                onClick={() => handleBulkDecision("approved")}
+                disabled={reviewableCount === 0 || Boolean(isSubmitting)}
+                className="flex-1 rounded-xl border border-green-400 px-4 py-3 font-semibold text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmitting === "bulk-approved" ? "Saving..." : "Approve All"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleBulkDecision("rejected")}
+                disabled={reviewableCount === 0 || Boolean(isSubmitting)}
+                className="flex-1 rounded-xl border border-red-400 px-4 py-3 font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmitting === "bulk-rejected" ? "Saving..." : "Reject All"}
+              </button>
+            </div>
+          </div>
+
+          <label className="mt-4 block space-y-2">
+            <span className="text-sm font-semibold text-text-main">
+              Remarks for All
+            </span>
+            <textarea
+              value={bulkRemarks}
+              onChange={(event) => setBulkRemarks(event.target.value)}
+              disabled={reviewableCount === 0 || Boolean(isSubmitting)}
+              rows={3}
+              className="w-full resize-none rounded-xl border border-border-light bg-white px-3 py-2 text-sm text-text-main outline-none focus:border-primary disabled:opacity-60"
+              placeholder="These remarks will be applied to every reviewed equipment item."
+            />
+          </label>
+        </section>
+
         <div className="space-y-5">
           {data.items.map((item) => (
             <article
               key={item.id}
-              className="rounded-2xl border border-border-light bg-white p-6 shadow-sm"
+              className={`rounded-2xl border p-6 shadow-sm ${itemCardClass(item)}`}
             >
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-semibold uppercase ${statusClass(
-                      item.unit_leader_process?.decision,
-                    )}`}
-                  >
-                    Unit Leader: {formatDecision(item.unit_leader_process)}
-                  </span>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${statusClass(
+                        item.status,
+                      )}`}
+                    >
+                      {item.status?.replaceAll("_", " ") || "pending"}
+                    </span>
+                    <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase text-primary">
+                      {item.equipment_id}
+                    </span>
+                  </div>
                   <h2 className="mt-4 text-2xl font-semibold text-text-main">
                     {item.equipment_name}
                   </h2>
-                  <p className="mt-2 flex items-center gap-2 text-sm text-text-muted">
-                    <MapPin className="h-4 w-4" />
-                    {item.lab_name} | {item.start_date} to {item.end_date} |{" "}
-                    {formatTime(item.start_time)} - {formatTime(item.end_time)}
-                  </p>
                 </div>
                 <p className="text-xl font-semibold text-primary">
                   {formatRmFromUsd(item.total_price || 0)}
                 </p>
               </div>
 
-              <div className="mt-5 grid gap-4 md:grid-cols-3">
-                <Info label="Staff Name" value={item.staff_name || "-"} />
-                <Info label="Staff Email" value={item.staff_email || "-"} />
-                <Info label="Staff Contact" value={item.staff_contact || "-"} />
-              </div>
+              <div className="mt-6 space-y-6 border-t border-border-light pt-6">
+                <ItemBlock title="Booking Details">
+                  <ItemInfo label="Lab" value={item.lab_name || "-"} />
+                  <ItemInfo label="Start Date" value={formatDate(item.start_date)} />
+                  <ItemInfo label="End Date" value={formatDate(item.end_date)} />
+                  <ItemInfo label="Start Time" value={formatTime(item.start_time)} />
+                  <ItemInfo label="End Time" value={formatTime(item.end_time)} />
+                </ItemBlock>
 
-              <div className="mt-5 rounded-xl border border-border-light bg-background-main p-4">
-                <p className="text-sm font-semibold text-text-main">Reason</p>
-                <p className="mt-2 whitespace-pre-wrap text-sm text-text-muted">
-                  {item.booking_reason || "No reason provided."}
-                </p>
-              </div>
+                <ItemBlock title="Staff Details">
+                  <ItemInfo label="Name" value={item.staff_name || "-"} />
+                  <ItemInfo label="Email" value={item.staff_email || "-"} />
+                  <ItemInfo label="Contact" value={item.staff_contact || "-"} />
+                </ItemBlock>
 
-              <div className="mt-5">
-                <label className="block space-y-2">
-                  <span className="text-sm font-semibold text-text-main">
-                    Unit Leader Remarks
-                  </span>
-                  <textarea
-                    value={remarksByItem[item.id] || ""}
-                    onChange={(event) =>
-                      setRemarksByItem((current) => ({
-                        ...current,
-                        [item.id]: event.target.value,
-                      }))
-                    }
-                    disabled={!item.can_review}
-                    rows={3}
-                    className="w-full resize-none rounded-xl border border-border-light bg-white px-3 py-2 text-sm text-text-main outline-none focus:border-primary disabled:opacity-60"
-                    placeholder={item.unit_leader_process?.remarks || "Add remarks..."}
+                <div>
+                  <h3 className="text-xs font-semibold uppercase text-primary">
+                    Additional Information
+                  </h3>
+                  <div className="mt-3 rounded-xl bg-background-main p-4">
+                    <p className="text-xs font-semibold uppercase text-text-muted">
+                      Reason
+                    </p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm text-text-main">
+                      {item.booking_reason || "No reason provided."}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <ReviewCard
+                    title="Unit Leader Review"
+                    decision={formatDecision(item.unit_leader_process)}
+                    process={item.unit_leader_process}
                   />
-                </label>
+                  <ReviewCard
+                    title="PPMU Review"
+                    decision={formatDecision(item.ppmu_process)}
+                    process={item.ppmu_process}
+                  />
+                </div>
 
-                <div className="mt-4 flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handleDecision(item.id, "approved")}
-                    disabled={!item.can_review || Boolean(isSubmitting)}
-                    className="flex-1 rounded-xl border border-green-400 px-4 py-3 font-semibold text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isSubmitting === `${item.id}-approved` ? "Saving..." : "Approve"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDecision(item.id, "rejected")}
-                    disabled={!item.can_review || Boolean(isSubmitting)}
-                    className="flex-1 rounded-xl border border-red-400 px-4 py-3 font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isSubmitting === `${item.id}-rejected` ? "Saving..." : "Reject"}
-                  </button>
+                <div>
+                  <label className="block space-y-2">
+                    <span className="text-sm font-semibold text-text-main">
+                      Unit Leader Remarks
+                    </span>
+                    <textarea
+                      value={remarksByItem[item.id] || ""}
+                      onChange={(event) =>
+                        setRemarksByItem((current) => ({
+                          ...current,
+                          [item.id]: event.target.value,
+                        }))
+                      }
+                      disabled={!item.can_review}
+                      rows={3}
+                      className="w-full resize-none rounded-xl border border-border-light bg-white px-3 py-2 text-sm text-text-main outline-none focus:border-primary disabled:opacity-60"
+                      placeholder={item.unit_leader_process?.remarks || "Add remarks..."}
+                    />
+                  </label>
+
+                  <div className="mt-4 flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleDecision(item.id, "approved")}
+                      disabled={!item.can_review || Boolean(isSubmitting)}
+                      className="flex-1 rounded-xl border border-green-400 px-4 py-3 font-semibold text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isSubmitting === `${item.id}-approved` ? "Saving..." : "Approve"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDecision(item.id, "rejected")}
+                      disabled={!item.can_review || Boolean(isSubmitting)}
+                      className="flex-1 rounded-xl border border-red-400 px-4 py-3 font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isSubmitting === `${item.id}-rejected` ? "Saving..." : "Reject"}
+                    </button>
+                  </div>
                 </div>
               </div>
             </article>
@@ -287,6 +476,43 @@ function Info({ label, value, wide }) {
     >
       <p className="text-xs font-semibold uppercase text-text-muted">{label}</p>
       <p className="mt-1 break-words font-semibold text-text-main">{value}</p>
+    </div>
+  );
+}
+
+function ItemBlock({ title, children }) {
+  return (
+    <div>
+      <h3 className="text-xs font-semibold uppercase text-primary">{title}</h3>
+      <div className="mt-3 grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ItemInfo({ label, value }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs font-semibold uppercase text-text-muted">{label}</p>
+      <p className="mt-1 break-words text-sm font-semibold text-text-main">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function ReviewCard({ title, decision, process }) {
+  return (
+    <div className="rounded-xl border border-border-light bg-background-main p-4">
+      <p className="flex items-center gap-2 text-sm font-semibold text-text-main">
+        <UserRound className="h-4 w-4 text-primary" />
+        {title}
+      </p>
+      <p className="mt-2 text-sm font-semibold text-primary">{decision}</p>
+      <p className="mt-1 text-sm text-text-muted">
+        {process?.remarks || process?.rejection_reason || "No remarks yet."}
+      </p>
     </div>
   );
 }

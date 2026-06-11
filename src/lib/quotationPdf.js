@@ -32,6 +32,83 @@ function formatDateRange(startDate, endDate) {
   return `${formatDate(startDate)} to ${formatDate(endDate)}`;
 }
 
+function valueList(values) {
+  const uniqueValues = [
+    ...new Set((values || []).map((value) => valueOrDash(value)).filter((value) => value !== "-")),
+  ];
+
+  if (uniqueValues.length === 0) return "-";
+  if (uniqueValues.length === 1) return uniqueValues[0];
+  return "Multiple";
+}
+
+function getItemStatus(item) {
+  return String(item?.approvalStatus || item?.resourceStatus || item?.status || "")
+    .trim()
+    .toLowerCase();
+}
+
+function getItemStatusLabel(item) {
+  const status = getItemStatus(item);
+
+  if (status === "approved") return "Approved";
+  if (status === "rejected") return "Rejected";
+  return valueOrDash(item?.approvalStatus || item?.resourceStatus || item?.status);
+}
+
+function getBillableItemTotal(item) {
+  return getItemStatus(item) === "rejected" ? 0 : Number(item?.totalPrice || 0);
+}
+
+function normalizeQuotationItems({
+  bookingType,
+  resourceName,
+  resourceId,
+  resourceLocation,
+  resourceStatus,
+  resourceCourse,
+  resourceDescription,
+  resourceQuantity,
+  resourceLabId,
+  startDate,
+  endDate,
+  startTime,
+  endTime,
+  bookingDayCount,
+  durationHours,
+  pricePerHour,
+  totalPrice,
+  purpose,
+  items,
+}) {
+  if (Array.isArray(items) && items.length > 0) {
+    return items;
+  }
+
+  return [
+    {
+      bookingType,
+      resourceName,
+      resourceId,
+      resourceLocation,
+      resourceStatus,
+      resourceCourse,
+      resourceDescription,
+      resourceQuantity,
+      resourceLabId,
+      startDate,
+      endDate,
+      startTime,
+      endTime,
+      bookingDayCount,
+      durationHours,
+      pricePerHour,
+      totalPrice,
+      purpose,
+    },
+  ];
+}
+
 function todayText() {
   return new Date().toLocaleDateString("en-GB", {
     day: "2-digit",
@@ -58,19 +135,25 @@ function addPageIfNeeded(doc, y, neededHeight) {
   return 20;
 }
 
+function drawSectionTitle(doc, title, x, y, width) {
+  y = addPageIfNeeded(doc, y, 12);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(170, 0, 70);
+  doc.text(title, x, y);
+  doc.setDrawColor(220, 220, 220);
+  doc.line(x, y + 2, x + width, y + 2);
+  doc.setTextColor(25, 25, 25);
+  return y + 9;
+}
+
 function drawSection(doc, title, rows, x, y, width) {
   const usableRows = rows.filter(
     ([, value]) => value !== undefined && value !== null,
   );
   if (!usableRows.length) return y;
 
-  y = addPageIfNeeded(doc, y, 14 + usableRows.length * 8);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text(title, x, y);
-  y += 2;
-  doc.line(x, y, x + width, y);
-  y += 7;
+  y = drawSectionTitle(doc, title, x, y, width);
 
   doc.setFontSize(9);
   usableRows.forEach(([label, value]) => {
@@ -85,7 +168,63 @@ function drawSection(doc, title, rows, x, y, width) {
   return y + 4;
 }
 
-export function downloadQuotationPdf({
+function drawQuotationItemCard({
+  doc,
+  item,
+  index,
+  bookingType,
+  votNumber,
+  margin,
+  pageWidth,
+  contentWidth,
+  y,
+}) {
+  const itemTotalHours =
+    Number(item.durationHours || 0) * Number(item.bookingDayCount || 0);
+  const itemStatus = getItemStatusLabel(item);
+  const itemTotal = getBillableItemTotal(item);
+  const detailLines = [
+    `Status: ${itemStatus}`,
+    `Resource ID: ${valueOrDash(item.resourceId)}`,
+    `Type: ${valueOrDash(item.bookingType || bookingType)}`,
+    `Date: ${formatDateRange(item.startDate, item.endDate)}`,
+    `Time: ${valueOrDash(item.startTime)} - ${valueOrDash(item.endTime)}`,
+    `VOT: ${valueOrDash(votNumber)}`,
+    `Price / Unit: ${formatRmFromUsd(item.pricePerHour || 0)}`,
+    `Qty: ${itemTotalHours} hr`,
+    `Total: ${formatRmFromUsd(itemTotal)}`,
+  ];
+  const wrappedDetailLines = doc.splitTextToSize(
+    detailLines.join("\n"),
+    contentWidth - 8,
+  );
+  const blockHeight = Math.max(52, wrappedDetailLines.length * 4.5 + 18);
+
+  y = addPageIfNeeded(doc, y, blockHeight + 6);
+  doc.setFillColor(248, 247, 242);
+  doc.setDrawColor(225, 225, 225);
+  doc.roundedRect(margin, y - 4, contentWidth, blockHeight, 2, 2, "FD");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(25, 25, 25);
+  doc.text(`${index + 1}. ${valueOrDash(item.resourceName)}`, margin + 4, y + 3);
+
+  doc.setFontSize(8);
+  doc.setTextColor(itemStatus === "Rejected" ? 180 : 20, itemStatus === "Rejected" ? 30 : 120, 70);
+  doc.text(formatRmFromUsd(itemTotal), pageWidth - margin - 4, y + 3, {
+    align: "right",
+  });
+
+  doc.setTextColor(25, 25, 25);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.text(wrappedDetailLines, margin + 4, y + 10);
+
+  return y + blockHeight + 6;
+}
+
+export function createQuotationPdfDoc({
   bookingType,
   quotationNumber = "DRAFT",
   quotationDate,
@@ -95,6 +234,15 @@ export function downloadQuotationPdf({
   requesterIdentifier,
   requesterFaculty,
   requesterContact,
+  studentStatus,
+  studyLevel,
+  study_level: studyLevelSnake,
+  lecturerName,
+  lecturerEmail,
+  lecturerContact,
+  lectName,
+  lectEmail,
+  lectContact,
   staffName,
   staffEmail,
   staffContact,
@@ -116,25 +264,59 @@ export function downloadQuotationPdf({
   resourceDescription,
   resourceQuantity,
   resourceLabId,
+  items,
 } = {}) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 16;
   const tableWidth = pageWidth - margin * 2;
-  const totalHours = Number(durationHours || 0) * Number(bookingDayCount || 0);
   const dateText = quotationDate || todayText();
+  const quotationItems = normalizeQuotationItems({
+    bookingType,
+    resourceName,
+    resourceId,
+    resourceLocation,
+    resourceStatus,
+    resourceCourse,
+    resourceDescription,
+    resourceQuantity,
+    resourceLabId,
+    startDate,
+    endDate,
+    startTime,
+    endTime,
+    bookingDayCount,
+    durationHours,
+    pricePerHour,
+    totalPrice,
+    purpose,
+    items,
+  });
+  const hasItemizedQuotation = Array.isArray(items) && items.length > 0;
+  const totalAmount = quotationItems.reduce(
+    (sum, item) => sum + getBillableItemTotal(item),
+    0,
+  );
+  const displayTotalPrice = hasItemizedQuotation
+    ? totalAmount
+    : Number(totalPrice || totalAmount);
+  const totalHours = quotationItems.reduce(
+    (sum, item) =>
+      sum +
+      Number(item.durationHours || 0) * Number(item.bookingDayCount || 0),
+    0,
+  );
 
-  doc.setTextColor(20, 20, 20);
+  doc.setTextColor(25, 25, 25);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(28);
+  doc.setFontSize(26);
   doc.setTextColor(120, 0, 45);
   doc.text("UTM", margin, 24);
-
   doc.setFontSize(8);
   doc.text("UNIVERSITI TEKNOLOGI MALAYSIA", margin, 30);
 
-  doc.setTextColor(20, 20, 20);
-  doc.setFontSize(11);
+  doc.setTextColor(25, 25, 25);
+  doc.setFontSize(10);
   doc.text(
     "PUSAT PENGURUSAN MAKMAL UNIVERSITI (PPMU)",
     pageWidth - margin,
@@ -143,7 +325,7 @@ export function downloadQuotationPdf({
       align: "right",
     },
   );
-  doc.text("UNIVERSITI TEKNOLOGI MALAYSIA (UTM)", pageWidth - margin, 24, {
+  doc.text("UNIVERSITI TEKNOLOGI MALAYSIA KUALA LUMPUR", pageWidth - margin, 24, {
     align: "right",
   });
   doc.text("JALAN SULTAN YAHYA PETRA", pageWidth - margin, 30, {
@@ -153,30 +335,31 @@ export function downloadQuotationPdf({
     align: "right",
   });
 
-  let y = 54;
+  let y = 52;
+  doc.setFontSize(15);
+  doc.text("QUOTATION", pageWidth / 2, y, { align: "center" });
+  doc.setDrawColor(170, 0, 70);
+  doc.line(margin, y + 4, pageWidth - margin, y + 4);
+
+  y += 16;
+  doc.setFillColor(248, 247, 242);
+  doc.setDrawColor(225, 225, 225);
+  doc.roundedRect(margin, y - 5, tableWidth, 22, 2, 2, "FD");
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.text(
-    `QUOTATION NO: ${valueOrDash(quotationNumber)}`,
-    pageWidth - margin,
-    54,
-    {
-      align: "right",
-    },
-  );
-  doc.text(`DATE: ${dateText}`, pageWidth - margin, 62, { align: "right" });
+  doc.setTextColor(170, 0, 70);
+  doc.text("Quotation Information", margin + 4, y + 2);
+  doc.setTextColor(25, 25, 25);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(`Quotation No: ${valueOrDash(quotationNumber)}`, margin + 4, y + 9);
+  doc.text(`Date: ${dateText}`, margin + 4, y + 15);
+  doc.text(`Total Amount: ${formatRmFromUsd(displayTotalPrice)}`, pageWidth - margin - 4, y + 15, {
+    align: "right",
+  });
 
-  y = 76;
-  doc.setFontSize(13);
-  doc.text("QUOTATION", pageWidth / 2, y, { align: "center" });
-  y += 2;
-  doc.line(margin, y, pageWidth - margin, y);
-
-  y += 12;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text("Read first", margin, y);
-  y += 7;
+  y += 30;
+  y = drawSectionTitle(doc, "Read First", margin, y, tableWidth);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   READ_FIRST_ITEMS.forEach((item, index) => {
@@ -203,6 +386,20 @@ export function downloadQuotationPdf({
       ["ID", requesterIdentifier],
       ["Faculty", requesterFaculty],
       ["Contact Number", requesterContact],
+      ["Student Status", studentStatus || studyLevel || studyLevelSnake],
+    ],
+    margin,
+    y,
+    tableWidth,
+  );
+
+  y = drawSection(
+    doc,
+    "Lecturer Information",
+    [
+      ["Lecturer Name", lecturerName || lectName],
+      ["Lecturer Email", lecturerEmail || lectEmail],
+      ["Lecturer Contact", lecturerContact || lectContact],
     ],
     margin,
     y,
@@ -241,95 +438,68 @@ export function downloadQuotationPdf({
     bookingType === "Lab Booking" ? "Lab Information" : "Equipment Information",
     [
       ["Request Type", bookingType],
-      ["Resource Name", resourceName],
-      ["Resource ID", resourceId],
-      ["Location", resourceLocation],
-      ["Status", resourceStatus],
-      ["Course", resourceCourse],
-      ["Description", resourceDescription],
-      ["Quantity", resourceQuantity],
-      ["Lab ID", resourceLabId],
-      ["Start Date", formatDate(startDate)],
-      ["End Date", formatDate(endDate || startDate)],
+      ["Resource Name", resourceName || valueList(quotationItems.map((item) => item.resourceName))],
+      ["Resource ID", resourceId || valueList(quotationItems.map((item) => item.resourceId))],
+      ["Location", resourceLocation || valueList(quotationItems.map((item) => item.resourceLocation))],
+      ["Status", resourceStatus || valueList(quotationItems.map((item) => item.resourceStatus))],
+      ["Course", resourceCourse || valueList(quotationItems.map((item) => item.resourceCourse))],
+      ["Description", resourceDescription || valueList(quotationItems.map((item) => item.resourceDescription))],
+      ["Quantity", resourceQuantity || valueList(quotationItems.map((item) => item.resourceQuantity))],
+      ["Lab ID", resourceLabId || valueList(quotationItems.map((item) => item.resourceLabId))],
+      ["Start Date", formatDate(startDate || quotationItems[0]?.startDate)],
+      ["End Date", formatDate(endDate || quotationItems[0]?.endDate || quotationItems[0]?.startDate)],
       [
         "Booking Days",
-        `${bookingDayCount} weekday${bookingDayCount === 1 ? "" : "s"}`,
+        `${quotationItems.reduce(
+          (sum, item) => sum + Number(item.bookingDayCount || 0),
+          0,
+        )} weekday${quotationItems.length === 1 && Number(quotationItems[0]?.bookingDayCount || 0) === 1 ? "" : "s"}`,
       ],
-      ["Start Time", startTime],
-      ["End Time", endTime],
-      ["Daily Duration", `${durationHours} hr`],
+      ["Start Time", startTime || valueList(quotationItems.map((item) => item.startTime))],
+      ["End Time", endTime || valueList(quotationItems.map((item) => item.endTime))],
+      ["Daily Duration", durationHours ? `${durationHours} hr` : valueList(quotationItems.map((item) => `${item.durationHours || 0} hr`))],
       ["Total Duration", `${totalHours} hr`],
       ["VOT Number", votNumber],
-      ["Price Per Hour", formatRmFromUsd(pricePerHour)],
-      ["Total Price", formatRmFromUsd(totalPrice)],
-      ["Purpose", purpose],
+      ["Price Per Hour", pricePerHour ? formatRmFromUsd(pricePerHour) : valueList(quotationItems.map((item) => formatRmFromUsd(item.pricePerHour || 0)))],
+      ["Total Price", formatRmFromUsd(displayTotalPrice)],
+      ["Purpose", purpose || valueList(quotationItems.map((item) => item.purpose))],
     ],
     margin,
     y,
     tableWidth,
   );
 
-  y = addPageIfNeeded(doc, y + 4, 50);
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "bold");
-  doc.text("Quotation Summary", margin, y);
-
-  y += 7;
-  const columns = [
-    { label: "NO.", x: margin, width: 10, align: "center" },
-    { label: "ITEM", x: margin + 10, width: 80 },
-    { label: "PRICE / UNIT", x: margin + 90, width: 28, align: "center" },
-    { label: "QTY", x: margin + 118, width: 24, align: "center" },
-    {
-      label: "TOTAL (RM)",
-      x: margin + 142,
-      width: tableWidth - 142,
-      align: "center",
-    },
-  ];
-  const tableTop = y;
-  doc.rect(margin, tableTop, tableWidth, 11);
-  doc.setFont("helvetica", "bold");
-  columns.forEach((column, index) => {
-    if (index > 0) doc.line(column.x, tableTop, column.x, tableTop + 11);
-    doc.text(column.label, column.x + column.width / 2, tableTop + 7, {
-      align: column.align || "left",
+  y = drawSectionTitle(doc, "Quotation Summary", margin, y + 4, tableWidth);
+  quotationItems.forEach((item, index) => {
+    y = drawQuotationItemCard({
+      doc,
+      item,
+      index,
+      bookingType,
+      votNumber,
+      margin,
+      pageWidth,
+      contentWidth: tableWidth,
+      y,
     });
   });
 
-  const itemText = `${valueOrDash(resourceName)} (${valueOrDash(bookingType)})\nResource ID: ${valueOrDash(resourceId)}\nDate: ${formatDateRange(startDate, endDate)}\nTime: ${valueOrDash(startTime)} - ${valueOrDash(endTime)}\nVOT: ${valueOrDash(votNumber)}`;
-  const itemLines = doc.splitTextToSize(itemText, 76);
-  const rowTop = tableTop + 11;
-  const rowHeight = Math.max(27, itemLines.length * 5 + 4);
-  doc.rect(margin, rowTop, tableWidth, rowHeight);
-  columns.slice(1).forEach((column) => {
-    doc.line(column.x, rowTop, column.x, rowTop + rowHeight);
-  });
-
-  doc.setFont("helvetica", "normal");
-  doc.text("1", margin + 5, rowTop + 8, { align: "center" });
-  doc.text(itemLines, margin + 13, rowTop + 6);
-  doc.text(formatRmFromUsd(pricePerHour), margin + 104, rowTop + 8, {
-    align: "center",
-  });
-  doc.text(`${totalHours} hr`, margin + 130, rowTop + 8, { align: "center" });
-  doc.text(formatRmFromUsd(totalPrice), pageWidth - margin - 4, rowTop + 8, {
+  y = addPageIfNeeded(doc, y, 18);
+  doc.setFillColor(248, 247, 242);
+  doc.setDrawColor(225, 225, 225);
+  doc.roundedRect(margin, y - 4, tableWidth, 16, 2, 2, "FD");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("TOTAL AMOUNT (RM):", margin + 4, y + 5);
+  doc.setTextColor(170, 0, 70);
+  doc.text(formatRmFromUsd(displayTotalPrice), pageWidth - margin - 4, y + 5, {
     align: "right",
   });
+  doc.setTextColor(25, 25, 25);
 
-  const totalTop = rowTop + rowHeight;
-  doc.setFont("helvetica", "bold");
-  doc.text("TOTAL AMOUNT (RM):", margin + 114, totalTop + 7);
-  doc.rect(margin + 142, totalTop, tableWidth - 142, 9);
-  doc.text(formatRmFromUsd(totalPrice), pageWidth - margin - 4, totalTop + 7, {
-    align: "right",
-  });
-
-  y = addPageIfNeeded(doc, totalTop + 16, 60);
-  doc.setFont("helvetica", "bold");
-  doc.text("Terms and Conditions:", margin, y);
-  y += 6;
+  y = drawSectionTitle(doc, "Terms and Conditions", margin, y + 22, tableWidth);
   doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
   [
     "This quotation is issued by PPMU, UTM Kuala Lumpur.",
     "Bookings are subject to approval and resource availability.",
@@ -341,13 +511,9 @@ export function downloadQuotationPdf({
     y += 2;
   });
 
-  y = addPageIfNeeded(doc, y + 10, 50);
-  doc.setFont("helvetica", "bold");
-  doc.text("Customer Confirmation", margin, y);
-  y += 2;
-  doc.line(margin, y, pageWidth - margin, y);
-  y += 8;
+  y = drawSectionTitle(doc, "Customer Confirmation", margin, y + 8, tableWidth);
   doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
   y = drawWrappedText(doc, BOOKING_AGREEMENT_TEXT, margin, y, tableWidth);
   y += 10;
   doc.text(`Name: ${valueOrDash(requester.username)}`, margin, y);
@@ -356,6 +522,16 @@ export function downloadQuotationPdf({
   // y += 8;
   doc.text(`Date: ${dateText}`, margin, y);
 
-  const fileName = `${getFileSafeName(quotationNumber)}.pdf`;
+  return doc;
+}
+
+export function createQuotationPdfBuffer(payload = {}) {
+  const doc = createQuotationPdfDoc(payload);
+  return Buffer.from(doc.output("arraybuffer"));
+}
+
+export function downloadQuotationPdf(payload = {}) {
+  const doc = createQuotationPdfDoc(payload);
+  const fileName = `${getFileSafeName(payload.quotationNumber || "quotation")}.pdf`;
   doc.save(fileName || "quotation.pdf");
 }

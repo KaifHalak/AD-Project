@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Wrench } from "lucide-react";
 import { getCurrentSession } from "@/lib/supabase/auth";
 import { formatRmFromUsd } from "@/lib/currency";
 
@@ -151,6 +152,17 @@ export default function ApprovalPage() {
 
       <div className="flex justify-center pb-10">
         <div className="w-3/4 max-w-6xl space-y-8">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => router.push("/PPMU/edit-equipment")}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#b0125b] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-85"
+            >
+              <Wrench className="h-4 w-4" />
+              Edit Equipment
+            </button>
+          </div>
+
           <div className="bg-[#fafafa] border border-border-light p-5 rounded-2xl shadow-sm">
             <h2 className="text-lg font-semibold text-[#b0125b]">
               How to review requests

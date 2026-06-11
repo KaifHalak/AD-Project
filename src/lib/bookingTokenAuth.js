@@ -1,4 +1,5 @@
 import { getSupabaseServerClient } from "@/lib/supabase/supabaseServer";
+import { getSupabaseAdminClient } from "@/lib/supabase/supabaseAdmin";
 
 export function getAccessTokenFromHeader(request) {
   const authorizationHeader = request.headers.get("authorization") || "";
@@ -59,9 +60,21 @@ export async function getRequesterProfile(
   return { requester, scopedClient };
 }
 
-export async function verifyPicToken({ scopedClient, requester, picCode }) {
+export async function verifyPicToken({
+  scopedClient,
+  requester,
+  picCode,
+  persistVerification = true,
+}) {
   if (requester.role === "pic") {
-    return { verified: true };
+    return {
+      verified: true,
+      pic: {
+        token: "",
+        name: requester.username || "",
+        email: requester.email || "",
+      },
+    };
   }
 
   if (!isCodeFormatValid(picCode)) {
@@ -75,7 +88,9 @@ export async function verifyPicToken({ scopedClient, requester, picCode }) {
 
   const { data: assignedToken, error: assignedTokenError } = await scopedClient
     .from("pic_tokens")
-    .select("id, token, expires_at, manual_expire, assigned_to, created_at")
+    .select(
+      "id, token, expires_at, manual_expire, assigned_to, assigned_by, created_at",
+    )
     .eq("token", picCode)
     .eq("assigned_to", requester.id)
     .order("created_at", { ascending: false })
@@ -102,28 +117,54 @@ export async function verifyPicToken({ scopedClient, requester, picCode }) {
       };
     }
 
-    const { error: verificationUpdateError } = await scopedClient
-      .from("users")
-      .update({
-        verified: true,
-        verification_expiry: assignedToken.expires_at,
-      })
-      .eq("id", requester.id);
+    if (persistVerification) {
+      const { error: verificationUpdateError } = await scopedClient
+        .from("users")
+        .update({
+          verified: true,
+          verification_expiry: assignedToken.expires_at,
+        })
+        .eq("id", requester.id);
 
-    if (verificationUpdateError) {
-      console.error(
-        "Error updating user verification state:",
-        verificationUpdateError,
-      );
+      if (verificationUpdateError) {
+        console.error(
+          "Error updating user verification state:",
+          verificationUpdateError,
+        );
+        return {
+          error: {
+            status: 500,
+            message: "Code valid, but could not persist verification state.",
+          },
+        };
+      }
+    }
+
+    const admin = getSupabaseAdminClient();
+    const { data: picUser, error: picUserError } = await admin
+      .from("users")
+      .select("id, username, email")
+      .eq("id", assignedToken.assigned_by)
+      .maybeSingle();
+
+    if (picUserError) {
+      console.error("Error loading PIC user details:", picUserError);
       return {
         error: {
           status: 500,
-          message: "Code valid, but could not persist verification state.",
+          message: "Code valid, but could not load PIC details.",
         },
       };
     }
 
-    return { verified: true };
+    return {
+      verified: true,
+      pic: {
+        token: assignedToken.token,
+        name: picUser?.username || "",
+        email: picUser?.email || "",
+      },
+    };
   }
 
   const { data: anyToken, error: anyTokenError } = await scopedClient

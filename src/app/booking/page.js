@@ -26,9 +26,12 @@ import {
 } from "@/lib/bookingRequest";
 import {
   END_TIME_OPTIONS,
+  formatDateInput,
   START_TIME_OPTIONS,
   getDefaultBookingDateString,
+  parseDateInput,
 } from "@/lib/bookingConstraints";
+import { getLabTimetableEvents } from "@/lib/mockTimetable";
 
 function getTodayDateString() {
   const today = new Date();
@@ -49,6 +52,78 @@ function truncate(value, maxLength = 115) {
 
 function scheduleMatchesDate(item, selectedDate) {
   return String(item.start_date) <= selectedDate && String(item.end_date) >= selectedDate;
+}
+
+function addDays(date, days) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+
+function getWeekStart(dateString) {
+  const parsed = parseDateInput(dateString) || new Date();
+  parsed.setHours(0, 0, 0, 0);
+  const day = parsed.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  return addDays(parsed, mondayOffset);
+}
+
+function getWeekDays(dateString) {
+  const weekStart = getWeekStart(dateString);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = addDays(weekStart, index);
+    return {
+      date,
+      dateString: formatDateInput(date),
+      label: date.toLocaleDateString("en-US", { weekday: "short" }),
+      dayNumber: date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      }),
+    };
+  });
+}
+
+function formatScheduleDateRange(days) {
+  const firstDay = days[0]?.date;
+  const lastDay = days[days.length - 1]?.date;
+
+  if (!firstDay || !lastDay) return "";
+
+  return `${firstDay.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  })} - ${lastDay.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })}`;
+}
+
+function getScheduleItemType(status) {
+  return status === "approved" ? "booked" : "pending";
+}
+
+function getScheduleItemStyles(type) {
+  switch (type) {
+    case "booked":
+      return "border-green-200 bg-green-50 text-green-800";
+    case "class":
+      return "border-blue-200 bg-blue-50 text-blue-800";
+    default:
+      return "border-amber-200 bg-amber-50 text-amber-800";
+  }
+}
+
+function getScheduleItemLabel(type) {
+  switch (type) {
+    case "booked":
+      return "Booked";
+    case "class":
+      return "Class Timetable Booked";
+    default:
+      return "Pending Request";
+  }
 }
 
 export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
@@ -178,10 +253,6 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
       item.description?.toLowerCase().includes(equipmentKeyword)
     );
   });
-  const visibleSchedule = labSchedule.filter((item) =>
-    scheduleMatchesDate(item, scheduleDate),
-  );
-
   useEffect(() => {
     if (selectedEquipment?.lab_id) {
       loadSchedule(selectedEquipment.lab_id);
@@ -415,8 +486,9 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
           <SchedulePanel
             scheduleDate={scheduleDate}
             setScheduleDate={setScheduleDate}
-            visibleSchedule={visibleSchedule}
+            labSchedule={labSchedule}
             isScheduleLoading={isScheduleLoading}
+            labId={selectedLab.id}
           />
 
           <form
@@ -774,8 +846,9 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
               <SchedulePanel
                 scheduleDate={scheduleDate}
                 setScheduleDate={setScheduleDate}
-                visibleSchedule={visibleSchedule}
                 isScheduleLoading={isScheduleLoading}
+                labSchedule={labSchedule}
+                labId={selectedLab.id}
               />
             )}
           </section>
@@ -809,55 +882,153 @@ function InfoCard({ icon, label, value }) {
 function SchedulePanel({
   scheduleDate,
   setScheduleDate,
-  visibleSchedule,
+  labSchedule,
   isScheduleLoading,
+  labId,
 }) {
+  const weekDays = getWeekDays(scheduleDate);
+  const weekRangeLabel = formatScheduleDateRange(weekDays);
+
+  function moveWeek(direction) {
+    const currentWeekStart = getWeekStart(scheduleDate);
+    setScheduleDate(formatDateInput(addDays(currentWeekStart, direction * 7)));
+  }
+
+  function getEventsForDay(day) {
+    const bookingEvents = (labSchedule || [])
+      .filter((item) => scheduleMatchesDate(item, day.dateString))
+      .map((item) => {
+        const type = getScheduleItemType(item.status);
+
+        return {
+          id: `booking-${item.id}`,
+          type,
+          title: item.equipment_id,
+          subtitle: item.status?.replaceAll("_", " "),
+          startTime: item.start_time?.slice(0, 5),
+          endTime: item.end_time?.slice(0, 5),
+        };
+      });
+    const classEvents = getLabTimetableEvents(labId, day.dateString).map((event) => ({
+      id: event.id,
+      type: "class",
+      title: event.title,
+      subtitle: "Class timetable",
+      startTime: event.startTime,
+      endTime: event.endTime,
+    }));
+
+    return [...bookingEvents, ...classEvents].sort((left, right) =>
+      String(left.startTime).localeCompare(String(right.startTime)),
+    );
+  }
+
   return (
     <div className="rounded-3xl border border-border-light bg-white p-6 shadow-sm">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h3 className="text-2xl font-semibold text-text-main">Schedule</h3>
+          <h3 className="text-2xl font-semibold text-text-main">
+            Weekly Schedule
+          </h3>
           <p className="mt-1 text-sm text-text-muted">
-            Showing unavailable blocks for the selected date.
+            {weekRangeLabel}
           </p>
         </div>
-        <label className="block space-y-2">
-          <span className="text-sm font-semibold text-text-main">Date</span>
-          <Input
-            type="date"
-            value={scheduleDate}
-            onChange={(event) => setScheduleDate(event.target.value)}
-          />
-        </label>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <button
+            type="button"
+            onClick={() => moveWeek(-1)}
+            className="h-11 rounded-xl border border-border-light bg-white px-4 text-sm font-semibold text-text-main hover:bg-background-main"
+          >
+            Previous Week
+          </button>
+          <label className="block space-y-2">
+            <span className="text-sm font-semibold text-text-main">Date</span>
+            <Input
+              type="date"
+              value={scheduleDate}
+              onChange={(event) => setScheduleDate(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => moveWeek(1)}
+            className="h-11 rounded-xl border border-border-light bg-white px-4 text-sm font-semibold text-text-main hover:bg-background-main"
+          >
+            Next Week
+          </button>
+        </div>
       </div>
 
-      <div className="mt-5 rounded-2xl border border-border-light bg-background-main p-4">
-        <p className="text-sm font-semibold text-text-main">{scheduleDate}</p>
-        <div className="mt-4 space-y-3">
-          {isScheduleLoading ? (
-            <p className="text-sm text-text-muted">Loading schedule...</p>
-          ) : visibleSchedule.length === 0 ? (
-            <p className="text-sm text-text-muted">
-              No pending or approved bookings are currently shown for this date.
-            </p>
-          ) : (
-            visibleSchedule.map((item) => (
+      <div className="mt-5 flex flex-wrap gap-3">
+        <ScheduleLegend type="pending" />
+        <ScheduleLegend type="booked" />
+        <ScheduleLegend type="class" />
+      </div>
+
+      <div className="mt-5 overflow-x-auto">
+        <div className="grid min-w-[980px] grid-cols-7 rounded-2xl border border-border-light bg-background-main">
+          {weekDays.map((day) => {
+            const events = getEventsForDay(day);
+
+            return (
               <div
-                key={item.id}
-                className="flex flex-col gap-1 rounded-xl border border-border-light bg-white px-4 py-3 text-sm md:flex-row md:items-center md:justify-between"
+                key={day.dateString}
+                className="min-h-64 border-r border-border-light p-3 last:border-r-0"
               >
-                <span className="font-semibold text-text-main">
-                  {item.start_time?.slice(0, 5)} - {item.end_time?.slice(0, 5)}
-                </span>
-                <span className="text-text-muted">
-                  {item.equipment_id} | {item.status?.replaceAll("_", " ")}
-                </span>
+                <div className="rounded-xl bg-white px-3 py-2">
+                  <p className="text-sm font-semibold text-text-main">
+                    {day.label}
+                  </p>
+                  <p className="text-xs text-text-muted">{day.dayNumber}</p>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  {isScheduleLoading ? (
+                    <p className="rounded-xl border border-border-light bg-white px-3 py-3 text-xs text-text-muted">
+                      Loading...
+                    </p>
+                  ) : events.length === 0 ? (
+                    <p className="rounded-xl border border-border-light bg-white px-3 py-3 text-xs text-text-muted">
+                      No blocks
+                    </p>
+                  ) : (
+                    events.map((event) => (
+                      <div
+                        key={event.id}
+                        className={`rounded-xl border px-3 py-2 text-xs ${getScheduleItemStyles(
+                          event.type,
+                        )}`}
+                      >
+                        <p className="font-semibold">
+                          {event.startTime} - {event.endTime}
+                        </p>
+                        <p className="mt-1 font-semibold">{event.title}</p>
+                        <p className="mt-1 text-[11px] uppercase">
+                          {event.subtitle || getScheduleItemLabel(event.type)}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
-            ))
-          )}
+            );
+          })}
         </div>
       </div>
     </div>
+  );
+}
+
+function ScheduleLegend({ type }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold uppercase ${getScheduleItemStyles(
+        type,
+      )}`}
+    >
+      {getScheduleItemLabel(type)}
+    </span>
   );
 }
 

@@ -4,7 +4,11 @@ import {
   getAccessTokenFromHeader,
   getRequesterProfile,
 } from "@/lib/bookingTokenAuth";
-import { refreshParentStatus } from "@/lib/bookingRequest";
+import {
+  OVERALL_STATUS,
+  getDisplayStatus,
+  refreshParentStatus,
+} from "@/lib/bookingRequest";
 
 const ALLOWED_DECISIONS = new Set(["approved", "rejected"]);
 
@@ -44,6 +48,54 @@ function parseRouteParams(type, id) {
   }
 
   return { id: numericId };
+}
+
+async function getPicDetailsForBooking(admin, booking) {
+  if (!booking?.token || (booking.pic_name && booking.pic_email)) {
+    return {
+      picName: booking?.pic_name || "",
+      picEmail: booking?.pic_email || "",
+    };
+  }
+
+  const { data: tokenRow, error: tokenError } = await admin
+    .from("pic_tokens")
+    .select("assigned_by")
+    .eq("token", booking.token)
+    .eq("assigned_to", booking.user_id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (tokenError) {
+    console.error("Error loading request PIC token:", tokenError);
+    return {
+      picName: booking.pic_name || "",
+      picEmail: booking.pic_email || "",
+    };
+  }
+
+  if (!tokenRow?.assigned_by) {
+    return {
+      picName: booking.pic_name || "",
+      picEmail: booking.pic_email || "",
+    };
+  }
+
+  const { data: picUser, error: picUserError } = await admin
+    .from("users")
+    .select("username, email")
+    .eq("id", tokenRow.assigned_by)
+    .maybeSingle();
+
+  if (picUserError) {
+    console.error("Error loading request PIC user:", picUserError);
+  }
+
+  return {
+    picName: booking.pic_name || picUser?.username || "",
+    picEmail: booking.pic_email || picUser?.email || "",
+  };
 }
 
 async function getRequestDetail(admin, bookingId) {
@@ -95,6 +147,7 @@ async function getRequestDetail(admin, bookingId) {
   const equipmentById = new Map((equipmentResult.data || []).map((item) => [item.id, item]));
   const labsById = new Map((labsResult.data || []).map((lab) => [lab.id, lab]));
   const processesByItem = new Map();
+  const { picName, picEmail } = await getPicDetailsForBooking(admin, booking);
 
   for (const process of processesResult.data || []) {
     processesByItem.set(Number(process.booking_id), [
@@ -107,9 +160,17 @@ async function getRequestDetail(admin, bookingId) {
     request: {
       ...booking,
       type: "request",
+      display_status: getDisplayStatus(booking.overall_status),
+      display_status_type:
+        booking.overall_status || OVERALL_STATUS.PENDING_UNIT_LEADER_PROCESS,
       user_name: usersResult.data?.username || "Unknown",
       user_email: usersResult.data?.email || "Unknown",
       user_role: usersResult.data?.role || "Unknown",
+      pic_token: booking.token || "",
+      pic_name: picName,
+      pic_email: picEmail,
+      item_count: (items || []).length,
+      total_price: booking.final_total_price,
       items: (items || []).map((item) => {
         const equipment = equipmentById.get(item.equipment_id);
         const lab = labsById.get(item.lab_id);
@@ -305,4 +366,3 @@ export async function POST(request, { params }) {
     );
   }
 }
-

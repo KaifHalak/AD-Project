@@ -4,9 +4,61 @@ import {
   getAccessTokenFromHeader,
   getRequesterProfile,
 } from "@/lib/bookingTokenAuth";
-import { deriveOverallStatus, getDisplayStatus } from "@/lib/bookingRequest";
+import {
+  OVERALL_STATUS,
+  deriveOverallStatus,
+  getDisplayStatus,
+} from "@/lib/bookingRequest";
 
 const ALLOWED_STATUSES = ["cancelled"];
+
+async function getPicDetailsForBooking(admin, booking) {
+  if (!booking?.token || (booking.pic_name && booking.pic_email)) {
+    return {
+      picName: booking?.pic_name || "",
+      picEmail: booking?.pic_email || "",
+    };
+  }
+
+  const { data: tokenRow, error: tokenError } = await admin
+    .from("pic_tokens")
+    .select("assigned_by")
+    .eq("token", booking.token)
+    .eq("assigned_to", booking.user_id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (tokenError) {
+    console.error("Error loading booking PIC token:", tokenError);
+    return {
+      picName: booking.pic_name || "",
+      picEmail: booking.pic_email || "",
+    };
+  }
+
+  if (!tokenRow?.assigned_by) {
+    return {
+      picName: booking.pic_name || "",
+      picEmail: booking.pic_email || "",
+    };
+  }
+
+  const { data: picUser, error: picUserError } = await admin
+    .from("users")
+    .select("username, email")
+    .eq("id", tokenRow.assigned_by)
+    .maybeSingle();
+
+  if (picUserError) {
+    console.error("Error loading booking PIC user:", picUserError);
+  }
+
+  return {
+    picName: booking.pic_name || picUser?.username || "",
+    picEmail: booking.pic_email || picUser?.email || "",
+  };
+}
 
 async function getBookingDetail(admin, bookingId) {
   const { data: booking, error: bookingError } = await admin
@@ -59,11 +111,30 @@ async function getBookingDetail(admin, bookingId) {
 
   const equipmentById = new Map((equipmentResult.data || []).map((item) => [item.id, item]));
   const labsById = new Map((labsResult.data || []).map((lab) => [lab.id, lab]));
+  const reviewerIds = [
+    ...new Set((processesResult.data || []).map((process) => process.reviewer_id).filter(Boolean)),
+  ];
+  const { data: reviewerUsers, error: reviewerUsersError } = reviewerIds.length
+    ? await admin.from("users").select("id, username, email").in("id", reviewerIds)
+    : { data: [], error: null };
+  const reviewerUsersById = new Map((reviewerUsers || []).map((user) => [user.id, user]));
   const processesByItem = new Map();
+
+  if (reviewerUsersError) {
+    console.error("Error loading booking process reviewers:", reviewerUsersError);
+  }
 
   for (const process of processesResult.data || []) {
     const key = Number(process.booking_id);
-    processesByItem.set(key, [...(processesByItem.get(key) || []), process]);
+    const reviewer = reviewerUsersById.get(process.reviewer_id);
+    processesByItem.set(key, [
+      ...(processesByItem.get(key) || []),
+      {
+        ...process,
+        reviewer_name: reviewer?.username || "",
+        reviewer_email: reviewer?.email || "",
+      },
+    ]);
   }
 
   const enrichedItems = (items || []).map((item) => {
@@ -88,10 +159,13 @@ async function getBookingDetail(admin, bookingId) {
   });
 
   const status = booking.overall_status || deriveOverallStatus(items || []);
+  const { picName, picEmail } = await getPicDetailsForBooking(admin, booking);
 
   return {
     booking: {
       ...booking,
+      pic_name: picName,
+      pic_email: picEmail,
       items: enrichedItems,
       item_count: enrichedItems.length,
       display_status: getDisplayStatus(status),
@@ -233,7 +307,7 @@ export async function PATCH(request, { params }) {
       );
     }
 
-    if (existing.overall_status === "cancelled") {
+    if (existing.overall_status === OVERALL_STATUS.CANCELLED) {
       return NextResponse.json(
         { error: "This booking is already cancelled." },
         { status: 400 },
@@ -256,7 +330,10 @@ export async function PATCH(request, { params }) {
 
     const { data: updated, error: updateError } = await admin
       .from("bookings")
-      .update({ overall_status: "cancelled", updated_at: new Date().toISOString() })
+      .update({
+        overall_status: OVERALL_STATUS.CANCELLED,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", bookingId)
       .select("*")
       .maybeSingle();
@@ -281,4 +358,3 @@ export async function PATCH(request, { params }) {
     );
   }
 }
-

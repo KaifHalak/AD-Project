@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getCurrentSession } from "@/lib/supabase/auth";
 import { formatRmFromUsd } from "@/lib/currency";
+import { downloadBookingReceiptPdf } from "@/lib/bookingReceiptPdf";
 import {
   getStoredBookingRequestItems,
   saveStoredBookingRequestItems,
@@ -31,8 +32,16 @@ export default function CompleteBookingPage() {
   const [items, setItems] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingPicDetails, setIsLoadingPicDetails] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [userDetails, setUserDetails] = useState({
+    username: "",
+    role: "",
+    email: "",
+  });
+  const [picDetails, setPicDetails] = useState(null);
+  const [picDetailsError, setPicDetailsError] = useState("");
   const [form, setForm] = useState({
     requesterIdentifier: "",
     requesterFaculty: "",
@@ -59,6 +68,19 @@ export default function CompleteBookingPage() {
         return;
       }
 
+      const response = await fetch("/api/users/me", {
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+      });
+      const data = await response.json();
+
+      if (!isMounted) return;
+
+      if (response.ok) {
+        setUserDetails(data.user || { username: "", role: "", email: "" });
+      }
+
       setItems(getStoredBookingRequestItems());
     }
 
@@ -74,6 +96,70 @@ export default function CompleteBookingPage() {
       items.reduce((sum, item) => sum + Number(item.estimatedTotal || 0), 0),
     [items],
   );
+
+  useEffect(() => {
+    const formattedCode = form.picCode.trim().toUpperCase();
+
+    setPicDetails(null);
+    setPicDetailsError("");
+
+    if (formattedCode.length !== 6) {
+      setIsLoadingPicDetails(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    async function fetchPicDetails() {
+      setIsLoadingPicDetails(true);
+
+      try {
+        const { data: sessionData } = await getCurrentSession();
+        const token = sessionData?.session?.access_token;
+
+        if (!token) {
+          if (isMounted) {
+            setPicDetailsError("Please log in before checking this PIC token.");
+          }
+          return;
+        }
+
+        const response = await fetch("/api/pic/token-details", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ picCode: formattedCode }),
+        });
+        const data = await response.json();
+
+        if (!isMounted) return;
+
+        if (!response.ok) {
+          setPicDetailsError(data.error || "Could not load PIC details.");
+          return;
+        }
+
+        setPicDetails(data.pic || null);
+      } catch {
+        if (isMounted) {
+          setPicDetailsError("Something went wrong while loading PIC details.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingPicDetails(false);
+        }
+      }
+    }
+
+    const timeoutId = window.setTimeout(fetchPicDetails, 350);
+
+    return () => {
+      isMounted = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [form.picCode]);
 
   function updateForm(key, value) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -141,6 +227,19 @@ export default function CompleteBookingPage() {
       if (!response.ok) {
         setErrorMessage(data.error || "Could not submit booking request.");
         return;
+      }
+
+      if (data.booking?.id) {
+        const detailResponse = await fetch(`/api/bookings/${data.booking.id}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        const detailData = await detailResponse.json();
+
+        if (detailResponse.ok) {
+          downloadBookingReceiptPdf(detailData.booking || {});
+        }
       }
 
       saveStoredBookingRequestItems([]);
@@ -291,6 +390,15 @@ export default function CompleteBookingPage() {
 
           <form onSubmit={handleSubmit} className="mt-5 space-y-5">
             <FormSection title="User Details">
+              <Field label="Username">
+                <Input value={userDetails.username || "-"} readOnly />
+              </Field>
+              <Field label="Role">
+                <Input value={userDetails.role || "-"} readOnly />
+              </Field>
+              <Field label="Email">
+                <Input value={userDetails.email || "-"} readOnly />
+              </Field>
               <Field label="User ID" required>
                 <Input
                   value={form.requesterIdentifier}
@@ -376,18 +484,37 @@ export default function CompleteBookingPage() {
               </Field>
             </FormSection>
 
-            <FormSection title="Request Details">
+            <FormSection title="PIC Details">
               <Field label="PIC Token" required>
                 <Input
                   value={form.picCode}
                   onChange={(event) =>
-                    updateForm("picCode", event.target.value)
+                    updateForm("picCode", event.target.value.toUpperCase())
                   }
                   maxLength={6}
                   placeholder="6-character code"
                   required
                 />
               </Field>
+              {isLoadingPicDetails ? (
+                <p className="rounded-xl border border-border-light bg-white px-3 py-2 text-sm text-text-muted">
+                  Loading PIC details...
+                </p>
+              ) : null}
+              {picDetailsError ? (
+                <p className="rounded-xl border border-warning/20 bg-white px-3 py-2 text-sm font-medium text-warning">
+                  {picDetailsError}
+                </p>
+              ) : null}
+              {picDetails ? (
+                <div className="grid gap-3 text-sm">
+                  <Detail label="PIC Name" value={picDetails.name || "-"} />
+                  <Detail label="PIC Email" value={picDetails.email || "-"} />
+                </div>
+              ) : null}
+            </FormSection>
+
+            <FormSection title="Request Details">
               <Field label="Additional Request Details">
                 <textarea
                   value={form.requestDetails}

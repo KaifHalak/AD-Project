@@ -4,9 +4,73 @@ import {
   getAccessTokenFromHeader,
   getRequesterProfile,
 } from "@/lib/bookingTokenAuth";
-import { refreshParentStatus } from "@/lib/bookingRequest";
+import {
+  sendBookingDecisionEmail,
+  sendPpmuApprovalPicEmail,
+} from "@/lib/bookingDecisionEmail";
+import { createQuotationPdfBuffer } from "@/lib/quotationPdf";
+import {
+  OVERALL_STATUS,
+  getDisplayStatus,
+  refreshParentStatus,
+} from "@/lib/bookingRequest";
 
 const ALLOWED_DECISIONS = new Set(["approved", "rejected"]);
+
+function getDateString(value = new Date()) {
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function toMinutes(timeValue) {
+  const [hours, minutes] = String(timeValue || "00:00")
+    .slice(0, 5)
+    .split(":")
+    .map(Number);
+
+  return hours * 60 + minutes;
+}
+
+function getWeekdayCount(startDateString, endDateString) {
+  const startDate = new Date(`${startDateString}T00:00:00`);
+  const endDate = new Date(`${endDateString || startDateString}T00:00:00`);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return 1;
+  }
+
+  let count = 0;
+  const cursor = new Date(startDate);
+
+  while (cursor <= endDate) {
+    const day = cursor.getDay();
+    if (day !== 0 && day !== 6) count += 1;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return Math.max(1, count);
+}
+
+function getValueList(values) {
+  const uniqueValues = [
+    ...new Set(
+      (values || []).filter(
+        (value) => value !== null && value !== undefined && value !== "",
+      ),
+    ),
+  ];
+
+  if (uniqueValues.length === 0) return "";
+  if (uniqueValues.length === 1) return uniqueValues[0];
+  return "Multiple";
+}
+
+function getBillableTotal(items) {
+  return (items || []).reduce(
+    (sum, item) =>
+      sum + (item.resourceStatus === "rejected" ? 0 : Number(item.totalPrice || 0)),
+    0,
+  );
+}
 
 async function requirePpmuRequester(request) {
   const accessToken = getAccessTokenFromHeader(request);
@@ -41,6 +105,54 @@ function parseRouteParams(type, id) {
   }
 
   return { id: numericId };
+}
+
+async function getPicDetailsForBooking(admin, booking) {
+  if (!booking?.token || (booking.pic_name && booking.pic_email)) {
+    return {
+      picName: booking?.pic_name || "",
+      picEmail: booking?.pic_email || "",
+    };
+  }
+
+  const { data: tokenRow, error: tokenError } = await admin
+    .from("pic_tokens")
+    .select("assigned_by")
+    .eq("token", booking.token)
+    .eq("assigned_to", booking.user_id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (tokenError) {
+    console.error("Error loading request PIC token:", tokenError);
+    return {
+      picName: booking.pic_name || "",
+      picEmail: booking.pic_email || "",
+    };
+  }
+
+  if (!tokenRow?.assigned_by) {
+    return {
+      picName: booking.pic_name || "",
+      picEmail: booking.pic_email || "",
+    };
+  }
+
+  const { data: picUser, error: picUserError } = await admin
+    .from("users")
+    .select("username, email")
+    .eq("id", tokenRow.assigned_by)
+    .maybeSingle();
+
+  if (picUserError) {
+    console.error("Error loading request PIC user:", picUserError);
+  }
+
+  return {
+    picName: booking.pic_name || picUser?.username || "",
+    picEmail: booking.pic_email || picUser?.email || "",
+  };
 }
 
 async function getRequestDetail(admin, bookingId) {
@@ -92,6 +204,29 @@ async function getRequestDetail(admin, bookingId) {
   const equipmentById = new Map((equipmentResult.data || []).map((item) => [item.id, item]));
   const labsById = new Map((labsResult.data || []).map((lab) => [lab.id, lab]));
   const processesByItem = new Map();
+  const unitLeaderReviewerIds = [
+    ...new Set(
+      (processesResult.data || [])
+        .filter((process) => process.reviewer_role === "unit_leader")
+        .map((process) => process.reviewer_id)
+        .filter(Boolean),
+    ),
+  ];
+  const { data: unitLeaderUsers, error: unitLeaderUsersError } =
+    unitLeaderReviewerIds.length
+      ? await admin
+          .from("users")
+          .select("id, username, email")
+          .in("id", unitLeaderReviewerIds)
+      : { data: [], error: null };
+  const unitLeaderUsersById = new Map(
+    (unitLeaderUsers || []).map((user) => [user.id, user]),
+  );
+  const { picName, picEmail } = await getPicDetailsForBooking(admin, booking);
+
+  if (unitLeaderUsersError) {
+    console.error("Error loading unit leader users:", unitLeaderUsersError);
+  }
 
   for (const process of processesResult.data || []) {
     processesByItem.set(Number(process.booking_id), [
@@ -104,9 +239,17 @@ async function getRequestDetail(admin, bookingId) {
     request: {
       ...booking,
       type: "request",
+      display_status: getDisplayStatus(booking.overall_status),
+      display_status_type:
+        booking.overall_status || OVERALL_STATUS.PENDING_UNIT_LEADER_PROCESS,
       user_name: usersResult.data?.username || "Unknown",
       user_email: usersResult.data?.email || "Unknown",
       user_role: usersResult.data?.role || "Unknown",
+      pic_token: booking.token || "",
+      pic_name: picName,
+      pic_email: picEmail,
+      item_count: (items || []).length,
+      total_price: booking.final_total_price,
       items: (items || []).map((item) => {
         const equipment = equipmentById.get(item.equipment_id);
         const lab = labsById.get(item.lab_id);
@@ -114,6 +257,7 @@ async function getRequestDetail(admin, bookingId) {
         const unitLeaderProcess = processes.find(
           (process) => process.reviewer_role === "unit_leader",
         );
+        const unitLeaderUser = unitLeaderUsersById.get(unitLeaderProcess?.reviewer_id);
         const ppmuProcess = processes.find((process) => process.reviewer_role === "ppmu");
 
         return {
@@ -127,6 +271,8 @@ async function getRequestDetail(admin, bookingId) {
           staff_name: equipment?.staff_name || "",
           staff_email: equipment?.staff_email || "",
           staff_contact: equipment?.staff_contact || "",
+          unit_leader_name: unitLeaderUser?.username || "",
+          unit_leader_email: unitLeaderUser?.email || "",
           unit_leader_process: unitLeaderProcess || null,
           ppmu_process: ppmuProcess || null,
           can_review:
@@ -136,6 +282,230 @@ async function getRequestDetail(admin, bookingId) {
         };
       }),
     },
+  };
+}
+
+function buildQuotationPayloadFromRequest(requestDetail) {
+  const quotationItems = (requestDetail.items || []).map((item) => {
+    const durationHours = Math.max(
+      0,
+      (toMinutes(item.end_time) - toMinutes(item.start_time)) / 60,
+    );
+    const bookingDayCount = getWeekdayCount(item.start_date, item.end_date);
+
+    return {
+      bookingType: "Equipment Booking",
+      resourceName: item.equipment_name || item.equipment_id,
+      resourceId: item.equipment_id,
+      resourceLocation: item.location || "",
+      resourceStatus: item.status || "",
+      approvalStatus: item.status || "",
+      resourceCourse: item.course || "",
+      resourceDescription: item.equipment_description || "",
+      resourceQuantity: "",
+      resourceLabId: item.lab_id || "",
+      startDate: item.start_date,
+      endDate: item.end_date || item.start_date,
+      startTime: String(item.start_time || "").slice(0, 5),
+      endTime: String(item.end_time || "").slice(0, 5),
+      bookingDayCount,
+      durationHours,
+      pricePerHour: item.price_per_hour ?? 0,
+      totalPrice: item.total_price || 0,
+      purpose: item.booking_reason || requestDetail.request_details || "",
+    };
+  });
+  const billableTotal = getBillableTotal(quotationItems);
+
+  return {
+    bookingType: "Equipment Booking",
+    quotationNumber: `Q-EQ-${requestDetail.id}-${Date.now()}`,
+    quotationDate: getDateString(),
+    resourceName:
+      quotationItems.length === 1
+        ? quotationItems[0]?.resourceName
+        : `${quotationItems.length} equipment items`,
+    resourceId: getValueList(quotationItems.map((item) => item.resourceId)),
+    requester: {
+      username: requestDetail.user_name || "",
+      role: requestDetail.user_role || "",
+      email: requestDetail.user_email || "",
+    },
+    requesterIdentifier: requestDetail.requester_identifier || "",
+    requesterFaculty: requestDetail.requester_faculty || "",
+    requesterContact: requestDetail.requester_contact || "",
+    studentStatus: requestDetail.study_level || "",
+    lecturerName: requestDetail.lect_name || "",
+    lecturerEmail: requestDetail.lect_email || "",
+    lecturerContact: requestDetail.lect_contact || "",
+    staffName: getValueList(quotationItems.map((item) => {
+      const source = (requestDetail.items || []).find(
+        (bookingItem) => bookingItem.equipment_id === item.resourceId,
+      );
+      return source?.staff_name || "";
+    })),
+    staffEmail: getValueList((requestDetail.items || []).map((item) => item.staff_email)),
+    staffContact: getValueList((requestDetail.items || []).map((item) => item.staff_contact)),
+    pic: {
+      username: requestDetail.pic_name || "",
+      role: "pic",
+      email: requestDetail.pic_email || "",
+    },
+    picCode: requestDetail.token || requestDetail.pic_token || "",
+    startDate: quotationItems[0]?.startDate || requestDetail.booking_date || "",
+    endDate: quotationItems[0]?.endDate || requestDetail.booking_date || "",
+    startTime: getValueList(quotationItems.map((item) => item.startTime)),
+    endTime: getValueList(quotationItems.map((item) => item.endTime)),
+    bookingDayCount: quotationItems.reduce(
+      (sum, item) => sum + Number(item.bookingDayCount || 0),
+      0,
+    ),
+    durationHours: "",
+    pricePerHour: "",
+    totalPrice: billableTotal,
+    votNumber: requestDetail.vot_number || "",
+    purpose:
+      requestDetail.request_details ||
+      getValueList(quotationItems.map((item) => item.purpose)),
+    resourceLocation: getValueList(quotationItems.map((item) => item.resourceLocation)),
+    resourceStatus: "processed",
+    resourceCourse: getValueList(quotationItems.map((item) => item.resourceCourse)),
+    resourceDescription:
+      quotationItems.length === 1 ? quotationItems[0]?.resourceDescription || "" : "",
+    resourceQuantity: "",
+    resourceLabId: getValueList(quotationItems.map((item) => item.resourceLabId)),
+    items: quotationItems,
+  };
+}
+
+async function getOrCreateQuotationForRequest(admin, requestDetail) {
+  const { data: existingQuotation, error: existingError } = await admin
+    .from("booking_quotations")
+    .select("*")
+    .eq("booking_type", "equipment")
+    .eq("primary_booking_id", requestDetail.id)
+    .maybeSingle();
+
+  if (existingError) {
+    console.error("Error loading PPMU approval quotation:", existingError);
+    return { error: existingError };
+  }
+
+  if (existingQuotation) {
+    return { quotation: existingQuotation };
+  }
+
+  const quotationPayload = buildQuotationPayloadFromRequest(requestDetail);
+  const { data: createdQuotation, error: createError } = await admin
+    .from("booking_quotations")
+    .insert({
+      quotation_number: quotationPayload.quotationNumber,
+      quotation_date: quotationPayload.quotationDate,
+      version: 1,
+      booking_type: "equipment",
+      primary_booking_id: requestDetail.id,
+      booking_ids: [requestDetail.id],
+      user_id: requestDetail.user_id,
+      quotation_payload: quotationPayload,
+    })
+    .select("*")
+    .maybeSingle();
+
+  if (createError) {
+    console.error("Error creating PPMU approval quotation:", createError);
+    return { error: createError };
+  }
+
+  return { quotation: createdQuotation };
+}
+
+async function sendProcessedApprovalEmails({ admin, requestDetail, processRecord, ppmu }) {
+  const approvedItems = (requestDetail.items || []).filter(
+    (item) => item.status === "approved",
+  );
+
+  if (requestDetail.display_status_type !== OVERALL_STATUS.PROCESSED || approvedItems.length === 0) {
+    return { requester: null, pic: null };
+  }
+
+  const { quotation, error: quotationError } = await getOrCreateQuotationForRequest(
+    admin,
+    requestDetail,
+  );
+  const quotationPayload = quotation?.quotation_payload || {};
+  let quotationAttachment = null;
+
+  if (!quotationError) {
+    try {
+      quotationAttachment = {
+        filename: `${quotation?.quotation_number || "quotation"}.pdf`,
+        content: createQuotationPdfBuffer({
+          ...quotationPayload,
+          studentStatus: quotationPayload.studentStatus || requestDetail.study_level,
+          lecturerName: quotationPayload.lecturerName || requestDetail.lect_name,
+          lecturerEmail: quotationPayload.lecturerEmail || requestDetail.lect_email,
+          lecturerContact: quotationPayload.lecturerContact || requestDetail.lect_contact,
+        }),
+        contentType: "application/pdf",
+      };
+    } catch (pdfError) {
+      console.error("Error generating quotation PDF attachment:", pdfError);
+    }
+  }
+
+  const requester = {
+    username: requestDetail.user_name || "",
+    email: requestDetail.user_email || "",
+  };
+  const processRecordForRequester =
+    processRecord.decision === "approved"
+      ? processRecord
+      : {
+          ...processRecord,
+          decision: "approved",
+          remarks: "Approved items are listed in the attached quotation.",
+          rejection_reason: null,
+        };
+  const bookingForEmail = {
+    ...requestDetail,
+    booking_type: "equipment",
+    item_id: requestDetail.id,
+    item_name:
+      requestDetail.items?.length === 1
+        ? requestDetail.items[0]?.equipment_name || requestDetail.items[0]?.equipment_id
+        : `${requestDetail.items?.length || 0} equipment items`,
+    start_time: requestDetail.start_time || requestDetail.items?.[0]?.start_time || "",
+    end_time: requestDetail.end_time || requestDetail.items?.[0]?.end_time || "",
+  };
+  const requesterEmail = quotationAttachment
+    ? await sendBookingDecisionEmail({
+        admin,
+        type: "request",
+        id: requestDetail.id,
+        processRecord: processRecordForRequester,
+        booking: bookingForEmail,
+        requester,
+        attachments: [quotationAttachment],
+      })
+    : {
+        sent: false,
+        error: quotationError?.message || "Quotation PDF attachment could not be generated.",
+      };
+  const picEmail = requestDetail.pic_email
+    ? await sendPpmuApprovalPicEmail({
+        booking: bookingForEmail,
+        pic: {
+          username: requestDetail.pic_name || "",
+          email: requestDetail.pic_email || "",
+        },
+        ppmu,
+      })
+    : { sent: false, skipped: true, reason: "No PIC email for this booking." };
+
+  return {
+    requester: requesterEmail,
+    pic: picEmail,
+    quotation: quotationError ? { sent: false, error: quotationError.message } : quotation,
   };
 }
 
@@ -304,12 +674,35 @@ export async function POST(request, { params }) {
     }
 
     await refreshParentStatus(admin, parsed.id);
+    const { request: updatedRequestDetail, error: updatedDetailError } =
+      await getRequestDetail(admin, parsed.id);
+    let approvalNotifications = null;
+
+    if (updatedDetailError) {
+      console.error("Error loading request after PPMU decision:", updatedDetailError);
+    } else if (updatedRequestDetail) {
+      try {
+        approvalNotifications = await sendProcessedApprovalEmails({
+          admin,
+          requestDetail: updatedRequestDetail,
+          processRecord,
+          ppmu: requester,
+        });
+      } catch (notificationError) {
+        console.error("Error sending PPMU approval notifications:", notificationError);
+        approvalNotifications = {
+          requester: { sent: false, error: notificationError.message },
+          pic: { sent: false, error: notificationError.message },
+        };
+      }
+    }
 
     return NextResponse.json(
       {
         message:
           decision === "approved" ? "Equipment item approved." : "Equipment item rejected.",
         process: processRecord,
+        notifications: approvalNotifications,
       },
       { status: 201 },
     );
@@ -321,4 +714,3 @@ export async function POST(request, { params }) {
     );
   }
 }
-

@@ -30,6 +30,11 @@ function formatStudyLevel(value) {
 
 function getStatusStyles(status) {
   switch (status) {
+    case "pending_unit_leader_process":
+      return "border-primary/20 bg-primary/10 text-primary";
+    case "pending_ppmu_process":
+      return "border-blue-200 bg-blue-50 text-blue-700";
+    case "processed":
     case "approved":
       return "border-green-300 bg-green-50 text-green-700";
     case "partially_approved":
@@ -168,10 +173,11 @@ export default function BookingRecordsPage() {
               className="h-11 rounded-xl border border-border-light bg-white px-3 text-sm font-normal text-text-main outline-none transition-colors focus:border-primary"
             >
               <option value="all">All Statuses</option>
-              <option value="pending">Pending</option>
-              <option value="partially_approved">Partially Approved</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
+              <option value="pending_unit_leader_process">
+                Pending Unit Leader Process
+              </option>
+              <option value="pending_ppmu_process">Pending PPMU Process</option>
+              <option value="processed">Processed</option>
               <option value="cancelled">Cancelled</option>
             </select>
           </label>
@@ -245,9 +251,10 @@ export default function BookingRecordsPage() {
                     View Details
                   </Link>
 
-                  {["pending", "partially_approved", "approved"].includes(
-                    booking.display_status_type,
-                  ) ? (
+                  {[
+                    "pending_unit_leader_process",
+                    "pending_ppmu_process",
+                  ].includes(booking.display_status_type) ? (
                     <Button
                       type="button"
                       variant="secondary"

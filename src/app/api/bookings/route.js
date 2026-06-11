@@ -7,7 +7,11 @@ import {
 } from "@/lib/bookingTokenAuth";
 import { sendBookingSubmittedEmail } from "@/lib/bookingDecisionEmail";
 import {
+  createBookingReceiptPdfBuffer,
+} from "@/lib/bookingReceiptPdf";
+import {
   ACTIVE_EQUIPMENT_STATUSES,
+  OVERALL_STATUS,
   calculateItemTotal,
   deriveOverallStatus,
   findTimetableConflictForItem,
@@ -66,7 +70,8 @@ async function enrichParentBookings(admin, bookings) {
       item_count: 0,
       items: [],
       display_status: getDisplayStatus(booking.overall_status),
-      display_status_type: booking.overall_status || "pending",
+      display_status_type:
+        booking.overall_status || OVERALL_STATUS.PENDING_UNIT_LEADER_PROCESS,
     }));
   }
 
@@ -341,7 +346,7 @@ export async function POST(request) {
     const equipmentIds = [...new Set(normalizedItems.map((item) => item.equipmentId))];
     const { data: equipmentRows, error: equipmentError } = await admin
       .from("equipment")
-      .select("id, name, status, lab_id, price_per_hour")
+      .select("id, name, status, lab_id, price_per_hour, staff_name, staff_email, staff_contact")
       .in("id", equipmentIds);
 
     if (equipmentError) {
@@ -441,7 +446,9 @@ export async function POST(request) {
         final_total_price: Number(finalTotalPrice.toFixed(2)),
         request_details: requestDetails,
         token: requester.role === "pic" ? null : picCode,
-        overall_status: "pending",
+        pic_name: tokenVerification.pic?.name || null,
+        pic_email: tokenVerification.pic?.email || null,
+        overall_status: OVERALL_STATUS.PENDING_UNIT_LEADER_PROCESS,
       })
       .select("*")
       .maybeSingle();
@@ -481,8 +488,43 @@ export async function POST(request) {
       );
     }
 
+    const receiptBooking = {
+      ...parentBooking,
+      user_name: requester.username || "",
+      user_email: requester.email || "",
+      user_role: requester.role || "",
+      total_price: parentBooking.final_total_price,
+      pic_token: parentBooking.token || "",
+      items: (equipmentBookings || []).map((item) => {
+        const equipment = equipmentById.get(item.equipment_id);
+
+        return {
+          ...item,
+          equipment_name: equipment?.name || item.equipment_id,
+          lab_name: item.lab_id,
+          staff_name: equipment?.staff_name || "",
+          staff_email: equipment?.staff_email || "",
+          staff_contact: equipment?.staff_contact || "",
+        };
+      }),
+    };
+    let submittedEmailAttachments = [];
+
+    try {
+      submittedEmailAttachments = [
+        {
+          filename: `booking-request-receipt-${parentBooking.id}.pdf`,
+          content: createBookingReceiptPdfBuffer(receiptBooking),
+          contentType: "application/pdf",
+        },
+      ];
+    } catch (receiptError) {
+      console.error("Error generating booking receipt PDF attachment:", receiptError);
+    }
+
     const notification = await sendBookingSubmittedEmail({
       booking: {
+        id: parentBooking.id,
         booking_type: "equipment",
         item_id: parentBooking.id,
         item_name:
@@ -494,6 +536,7 @@ export async function POST(request) {
         end_time: preparedItems[0]?.endTime || "",
       },
       requester,
+      attachments: submittedEmailAttachments,
     });
 
     return NextResponse.json(

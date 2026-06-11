@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, CalendarDays, MapPin, UserRound } from "lucide-react";
+import { ArrowLeft, Download, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Loader from "@/components/loader";
 import { getCurrentSession } from "@/lib/supabase/auth";
 import { formatRmFromUsd } from "@/lib/currency";
+import { downloadQuotationPdf } from "@/lib/quotationPdf";
+import { downloadBookingReceiptPdf } from "@/lib/bookingReceiptPdf";
 
 function formatDate(dateString) {
   if (!dateString) return "-";
@@ -23,7 +25,9 @@ function formatTime(timeString) {
 
 function formatStudyLevel(value) {
   if (!value) return "-";
-  return String(value).replaceAll("_", " ").replace(/^\w/, (char) => char.toUpperCase());
+  return String(value)
+    .replaceAll("_", " ")
+    .replace(/^\w/, (char) => char.toUpperCase());
 }
 
 function formatDecision(process) {
@@ -31,8 +35,21 @@ function formatDecision(process) {
   return process.decision === "approved" ? "Approved" : "Rejected";
 }
 
+function formatPpmuDecision(item) {
+  if (item.unit_leader_process?.decision === "rejected" && !item.ppmu_process) {
+    return "Rejected (by Unit Leader)";
+  }
+
+  return formatDecision(item.ppmu_process);
+}
+
 function statusClass(status) {
   switch (status) {
+    case "pending_unit_leader_process":
+      return "bg-primary/10 text-primary border-primary/20";
+    case "pending_ppmu_process":
+      return "bg-blue-50 text-blue-700 border-blue-200";
+    case "processed":
     case "approved":
       return "bg-green-50 text-green-700 border-green-200";
     case "rejected":
@@ -46,6 +63,51 @@ function statusClass(status) {
   }
 }
 
+function reviewCardClass(process) {
+  switch (process?.decision) {
+    case "approved":
+      return "border-green-200 bg-green-50";
+    case "rejected":
+      return "border-red-200 bg-red-50";
+    default:
+      return "border-border-light bg-background-main";
+  }
+}
+
+function reviewDecisionClass(process) {
+  switch (process?.decision) {
+    case "approved":
+      return "text-green-700";
+    case "rejected":
+      return "text-red-700";
+    default:
+      return "text-primary";
+  }
+}
+
+function isProcessedBooking(booking) {
+  return (
+    booking?.display_status_type === "processed" ||
+    booking?.display_status === "Processed"
+  );
+}
+
+function canDownloadReceipt(booking) {
+  return booking?.display_status_type !== "cancelled";
+}
+
+function getItemDisplayTotal(item) {
+  return item?.status === "rejected" ? 0 : Number(item?.total_price || 0);
+}
+
+function getBookingDisplayTotal(booking) {
+  if (!Array.isArray(booking?.items)) {
+    return Number(booking?.total_price || 0);
+  }
+
+  return booking.items.reduce((sum, item) => sum + getItemDisplayTotal(item), 0);
+}
+
 export default function BookingRecordDetailPage() {
   const { id } = useParams();
   const router = useRouter();
@@ -54,20 +116,25 @@ export default function BookingRecordDetailPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isDownloadingQuotation, setIsDownloadingQuotation] = useState(false);
+  const [isDownloadingReceipt, setIsDownloadingReceipt] = useState(false);
 
-  const fetchBooking = useCallback(async (token) => {
-    const response = await fetch(`/api/bookings/${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const data = await response.json();
+  const fetchBooking = useCallback(
+    async (token) => {
+      const response = await fetch(`/api/bookings/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
 
-    if (!response.ok) {
-      setErrorMessage(data.error || "Could not load booking details.");
-      return;
-    }
+      if (!response.ok) {
+        setErrorMessage(data.error || "Could not load booking details.");
+        return;
+      }
 
-    setBooking(data.booking);
-  }, [id]);
+      setBooking(data.booking);
+    },
+    [id],
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -124,6 +191,53 @@ export default function BookingRecordDetailPage() {
     }
   }
 
+  async function handleDownloadQuotation() {
+    setIsDownloadingQuotation(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch(`/api/bookings/${id}/quotation`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        setErrorMessage(data.error || "Could not prepare quotation.");
+        return;
+      }
+
+      const quotationPayload = data.quotation?.quotation_payload || {};
+      downloadQuotationPdf({
+        ...quotationPayload,
+        studentStatus: quotationPayload.studentStatus || booking?.study_level,
+        lecturerName: quotationPayload.lecturerName || booking?.lect_name,
+        lecturerEmail: quotationPayload.lecturerEmail || booking?.lect_email,
+        lecturerContact: quotationPayload.lecturerContact || booking?.lect_contact,
+      });
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("Something went wrong while downloading the quotation.");
+    } finally {
+      setIsDownloadingQuotation(false);
+    }
+  }
+
+  function handleDownloadReceipt() {
+    setIsDownloadingReceipt(true);
+    setErrorMessage("");
+
+    try {
+      downloadBookingReceiptPdf(booking || {});
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("Something went wrong while downloading the receipt.");
+    } finally {
+      setIsDownloadingReceipt(false);
+    }
+  }
+
   if (isLoading) {
     return <Loader text="Loading booking details..." />;
   }
@@ -169,17 +283,17 @@ export default function BookingRecordDetailPage() {
                 {booking.item_count} equipment item
                 {booking.item_count === 1 ? "" : "s"}
               </h1>
-              <p className="mt-2 text-sm text-text-muted">
-                Submitted by {booking.user_name} | VOT {booking.vot_number || "-"}
-              </p>
             </div>
 
             <div className="text-left md:text-right">
               <p className="text-sm text-text-muted">Total</p>
               <p className="text-3xl font-semibold text-primary">
-                {formatRmFromUsd(booking.total_price || 0)}
+                {formatRmFromUsd(getBookingDisplayTotal(booking))}
               </p>
-              {booking.display_status_type !== "cancelled" ? (
+              {[
+                "pending_unit_leader_process",
+                "pending_ppmu_process",
+              ].includes(booking.display_status_type) ? (
                 <Button
                   type="button"
                   variant="secondary"
@@ -189,6 +303,37 @@ export default function BookingRecordDetailPage() {
                 >
                   {isCancelling ? "Cancelling..." : "Cancel Request"}
                 </Button>
+              ) : null}
+              {canDownloadReceipt(booking) || isProcessedBooking(booking) ? (
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row md:justify-end">
+                  {canDownloadReceipt(booking) ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={handleDownloadReceipt}
+                      disabled={isDownloadingReceipt}
+                      className="gap-2"
+                    >
+                      <Download className="h-4 w-4" />
+                      {isDownloadingReceipt
+                        ? "Preparing..."
+                        : "Download Receipt"}
+                    </Button>
+                  ) : null}
+                  {isProcessedBooking(booking) ? (
+                    <Button
+                      type="button"
+                      onClick={handleDownloadQuotation}
+                      disabled={isDownloadingQuotation}
+                      className="gap-2"
+                    >
+                      <Download className="h-4 w-4" />
+                      {isDownloadingQuotation
+                        ? "Preparing..."
+                        : "Download Quotation"}
+                    </Button>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           </div>
@@ -202,6 +347,9 @@ export default function BookingRecordDetailPage() {
 
         <div className="space-y-5">
           <DetailSection title="User Details">
+            <Info label="Username" value={booking.user_name || "-"} />
+            <Info label="Role" value={booking.user_role || "-"} />
+            <Info label="Email" value={booking.user_email || "-"} />
             <Info label="User ID" value={booking.requester_identifier || "-"} />
             <Info label="Faculty" value={booking.requester_faculty || "-"} />
             <Info label="Contact" value={booking.requester_contact || "-"} />
@@ -209,17 +357,30 @@ export default function BookingRecordDetailPage() {
               label="Study Level"
               value={formatStudyLevel(booking.study_level)}
             />
-            <Info label="PIC Token" value={booking.pic_token || "-"} />
           </DetailSection>
 
           <DetailSection title="Lecturer Details">
             <Info label="Lecturer Name" value={booking.lect_name || "-"} />
             <Info label="Lecturer Email" value={booking.lect_email || "-"} />
-            <Info label="Lecturer Contact" value={booking.lect_contact || "-"} />
+            <Info
+              label="Lecturer Contact"
+              value={booking.lect_contact || "-"}
+            />
+            <Info label="VOT Number" value={booking.vot_number || "-"} />
+          </DetailSection>
+
+          <DetailSection title="PIC Details">
+            <Info label="PIC Token" value={booking.pic_token || "-"} />
+            <Info label="PIC Name" value={booking.pic_name || "-"} />
+            <Info label="PIC Email" value={booking.pic_email || "-"} />
           </DetailSection>
 
           <DetailSection title="Request Details">
-            <Info label="Request Details" value={booking.request_details || "-"} wide />
+            <Info
+              label="Request Details"
+              value={booking.request_details || "-"}
+              wide
+            />
           </DetailSection>
         </div>
 
@@ -247,51 +408,69 @@ export default function BookingRecordDetailPage() {
                   <h2 className="mt-4 text-2xl font-semibold text-text-main">
                     {item.equipment_name}
                   </h2>
-                  <div className="mt-3 grid gap-2 text-sm text-text-muted md:grid-cols-2">
-                    <span className="inline-flex items-center gap-2">
-                      <MapPin className="h-4 w-4" />
-                      {item.lab_name}
-                    </span>
-                    <span className="inline-flex items-center gap-2">
-                      <CalendarDays className="h-4 w-4" />
-                      {formatDate(item.start_date)}
-                      {item.end_date !== item.start_date
-                        ? ` - ${formatDate(item.end_date)}`
-                        : ""}{" "}
-                      | {formatTime(item.start_time)} - {formatTime(item.end_time)}
-                    </span>
-                  </div>
                 </div>
 
                 <p className="text-xl font-semibold text-primary">
-                  {formatRmFromUsd(item.total_price || 0)}
+                  {formatRmFromUsd(getItemDisplayTotal(item))}
                 </p>
               </div>
 
-              <div className="mt-5 grid gap-4 md:grid-cols-3">
-                <Info label="Staff Name" value={item.staff_name || "-"} />
-                <Info label="Staff Email" value={item.staff_email || "-"} />
-                <Info label="Staff Contact" value={item.staff_contact || "-"} />
-              </div>
+              <div className="mt-6 space-y-6 border-t border-border-light pt-6">
+                <ItemBlock title="Booking Details">
+                  <ItemInfo label="Lab" value={item.lab_name || "-"} />
+                  <ItemInfo
+                    label="Start Date"
+                    value={formatDate(item.start_date)}
+                  />
+                  <ItemInfo
+                    label="End Date"
+                    value={formatDate(item.end_date)}
+                  />
+                  <ItemInfo
+                    label="Start Time"
+                    value={formatTime(item.start_time)}
+                  />
+                  <ItemInfo
+                    label="End Time"
+                    value={formatTime(item.end_time)}
+                  />
+                </ItemBlock>
 
-              <div className="mt-5 rounded-xl border border-border-light bg-background-main p-4">
-                <p className="text-sm font-semibold text-text-main">Reason</p>
-                <p className="mt-2 whitespace-pre-wrap text-sm text-text-muted">
-                  {item.booking_reason || "No reason provided."}
-                </p>
-              </div>
+                <ItemBlock title="Staff Details">
+                  <ItemInfo label="Name" value={item.staff_name || "-"} />
+                  <ItemInfo label="Email" value={item.staff_email || "-"} />
+                  <ItemInfo label="Contact" value={item.staff_contact || "-"} />
+                </ItemBlock>
 
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                <ReviewCard
-                  title="Unit Leader Review"
-                  decision={formatDecision(item.unit_leader_process)}
-                  process={item.unit_leader_process}
-                />
-                <ReviewCard
-                  title="PPMU Review"
-                  decision={formatDecision(item.ppmu_process)}
-                  process={item.ppmu_process}
-                />
+                <div>
+                  <h3 className="text-xs font-semibold uppercase text-primary">
+                    Additional Information
+                  </h3>
+                  <div className="mt-3 rounded-xl bg-background-main p-4">
+                    <p className="text-xs font-semibold uppercase text-text-muted">
+                      Reason
+                    </p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm text-text-main">
+                      {item.booking_reason || "No reason provided."}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <ReviewCard
+                    title="Unit Leader Review"
+                    decision={formatDecision(item.unit_leader_process)}
+                    process={item.unit_leader_process}
+                  />
+                  <ReviewCard
+                    title="PPMU Review"
+                    decision={formatPpmuDecision(item)}
+                    process={item.ppmu_process}
+                    showReviewerDetails={
+                      item.unit_leader_process?.decision !== "rejected"
+                    }
+                  />
+                </div>
               </div>
             </article>
           ))}
@@ -323,17 +502,49 @@ function Info({ label, value, wide }) {
   );
 }
 
-function ReviewCard({ title, decision, process }) {
+function ItemBlock({ title, children }) {
   return (
-    <div className="rounded-xl border border-border-light bg-background-main p-4">
+    <div>
+      <h3 className="text-xs font-semibold uppercase text-primary">{title}</h3>
+      <div className="mt-3 grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ItemInfo({ label, value }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs font-semibold uppercase text-text-muted">{label}</p>
+      <p className="mt-1 break-words text-sm font-semibold text-text-main">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function ReviewCard({ title, decision, process, showReviewerDetails = true }) {
+  return (
+    <div className={`rounded-xl border p-4 ${reviewCardClass(process)}`}>
       <p className="flex items-center gap-2 text-sm font-semibold text-text-main">
         <UserRound className="h-4 w-4 text-primary" />
         {title}
       </p>
-      <p className="mt-2 text-sm font-semibold text-primary">{decision}</p>
-      <p className="mt-1 text-sm text-text-muted">
-        {process?.remarks || process?.rejection_reason || "No remarks yet."}
+      <p className={`mt-2 text-sm font-semibold ${reviewDecisionClass(process)}`}>
+        {decision}
       </p>
+      {showReviewerDetails && process ? (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <ItemInfo label="Name" value={process.reviewer_name || "-"} />
+          <ItemInfo label="Email" value={process.reviewer_email || "-"} />
+        </div>
+      ) : null}
+      {showReviewerDetails ? (
+        <p className="mt-3 text-sm text-text-muted">
+          {process?.remarks || process?.rejection_reason || "No remarks yet."}
+        </p>
+      ) : null}
     </div>
   );
 }

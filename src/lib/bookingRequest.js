@@ -18,6 +18,12 @@ export const ACTIVE_EQUIPMENT_STATUSES = [
   "under_ppmu_review",
   "approved",
 ];
+export const OVERALL_STATUS = {
+  PENDING_UNIT_LEADER_PROCESS: "pending_unit_leader_process",
+  PENDING_PPMU_PROCESS: "pending_ppmu_process",
+  PROCESSED: "processed",
+  CANCELLED: "cancelled",
+};
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -158,33 +164,48 @@ export function calculateItemTotal({ pricePerHour, startTime, endTime, dayCount 
 }
 
 export function deriveOverallStatus(items = []) {
-  if (items.length === 0) return "pending";
-  if (items.every((item) => item.status === "cancelled")) return "cancelled";
+  if (items.length === 0) return OVERALL_STATUS.PENDING_UNIT_LEADER_PROCESS;
+  if (items.every((item) => item.status === "cancelled")) {
+    return OVERALL_STATUS.CANCELLED;
+  }
 
   const activeItems = items.filter((item) => item.status !== "cancelled");
-  if (activeItems.length === 0) return "cancelled";
-  if (activeItems.every((item) => item.status === "approved")) return "approved";
-  if (activeItems.every((item) => item.status === "rejected")) return "rejected";
+  if (activeItems.length === 0) return OVERALL_STATUS.CANCELLED;
 
-  const hasApproved = activeItems.some((item) => item.status === "approved");
-  const hasRejected = activeItems.some((item) => item.status === "rejected");
-  if (hasApproved && hasRejected) return "partially_approved";
+  const hasPendingUnitLeaderItem = activeItems.some(
+    (item) =>
+      item.status === "pending" || item.status === "under_unit_leader_review",
+  );
+  if (hasPendingUnitLeaderItem) {
+    return OVERALL_STATUS.PENDING_UNIT_LEADER_PROCESS;
+  }
 
-  return "pending";
+  const hasPendingPpmuItem = activeItems.some(
+    (item) => item.status === "under_ppmu_review",
+  );
+  if (hasPendingPpmuItem) return OVERALL_STATUS.PENDING_PPMU_PROCESS;
+
+  return OVERALL_STATUS.PROCESSED;
 }
 
 export function getDisplayStatus(status) {
   switch (status) {
+    case OVERALL_STATUS.PENDING_UNIT_LEADER_PROCESS:
+    case "pending":
+    case "under_unit_leader_review":
+      return "Pending Unit Leader Process";
+    case OVERALL_STATUS.PENDING_PPMU_PROCESS:
+    case "under_ppmu_review":
+      return "Pending PPMU Process";
+    case OVERALL_STATUS.PROCESSED:
     case "approved":
-      return "Approved";
-    case "partially_approved":
-      return "Partially Approved";
     case "rejected":
-      return "Rejected";
-    case "cancelled":
+    case "partially_approved":
+      return "Processed";
+    case OVERALL_STATUS.CANCELLED:
       return "Cancelled";
     default:
-      return "Pending";
+      return "Pending Unit Leader Process";
   }
 }
 
