@@ -97,6 +97,16 @@ function reviewDecisionClass(process) {
   }
 }
 
+async function readResponseJson(response) {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  return {};
+}
+
 export default function PpmuRequestDetailPage() {
   const { type, id } = useParams();
   const router = useRouter();
@@ -127,7 +137,7 @@ export default function PpmuRequestDetailPage() {
       const response = await fetch(`/api/ppmu/${type}/${id}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      const responseData = await response.json();
+      const responseData = await readResponseJson(response);
 
       if (!response.ok) {
         setErrorMessage(
@@ -173,7 +183,7 @@ export default function PpmuRequestDetailPage() {
           remarks: remarksByItem[itemId] || "",
         }),
       });
-      const responseData = await response.json();
+      const responseData = await readResponseJson(response);
 
       if (!response.ok) {
         setErrorMessage(responseData?.error || "Could not save decision.");
@@ -223,7 +233,7 @@ export default function PpmuRequestDetailPage() {
             remarks: bulkRemarks,
           }),
         });
-        const responseData = await response.json();
+        const responseData = await readResponseJson(response);
 
         if (!response.ok) {
           setErrorMessage(

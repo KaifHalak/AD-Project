@@ -60,6 +60,16 @@ function itemCardClass(item) {
   }
 }
 
+async function readResponseJson(response) {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  return {};
+}
+
 export default function UnitLeaderRequestDetailPage() {
   const { type, id } = useParams();
   const router = useRouter();
@@ -90,7 +100,7 @@ export default function UnitLeaderRequestDetailPage() {
       const response = await fetch(`/api/unit-leader/${type}/${id}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      const responseData = await response.json();
+      const responseData = await readResponseJson(response);
 
       if (!response.ok) {
         setErrorMessage(responseData?.error || "Could not load request details.");
@@ -134,7 +144,7 @@ export default function UnitLeaderRequestDetailPage() {
           remarks: remarksByItem[itemId] || "",
         }),
       });
-      const responseData = await response.json();
+      const responseData = await readResponseJson(response);
 
       if (!response.ok) {
         setErrorMessage(responseData?.error || "Could not save decision.");
@@ -182,7 +192,7 @@ export default function UnitLeaderRequestDetailPage() {
             remarks: bulkRemarks,
           }),
         });
-        const responseData = await response.json();
+        const responseData = await readResponseJson(response);
 
         if (!response.ok) {
           setErrorMessage(
