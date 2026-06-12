@@ -64,9 +64,9 @@ export async function GET(request) {
       .eq("decision", "approved");
 
     if (unitLeaderError) {
-      console.error("Error fetching unit leader approvals:", unitLeaderError);
+      console.error("Error fetching unit leader recommendations:", unitLeaderError);
       return NextResponse.json(
-        { error: "Could not fetch unit leader approvals." },
+        { error: "Could not fetch unit leader recommendations." },
         { status: 500 },
       );
     }
@@ -169,6 +169,8 @@ export async function GET(request) {
         lect_name: booking.lect_name || "",
         lect_email: booking.lect_email || "",
         lect_contact: booking.lect_contact || "",
+        lect_faculty: booking.lect_faculty || "",
+        lect_id: booking.lect_id || "",
         vot_number: booking.vot_number || "",
         total_price: booking.final_total_price ?? null,
         created_at: booking.created_at || null,

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BookingInstructions } from "@/components/booking-instructions";
 import { getCurrentSession } from "@/lib/supabase/auth";
 import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
 import { formatRmFromUsd } from "@/lib/currency";
@@ -29,6 +30,7 @@ import {
   formatDateInput,
   START_TIME_OPTIONS,
   getDefaultBookingDateString,
+  getMaxBookingDateString,
   parseDateInput,
 } from "@/lib/bookingConstraints";
 import { getLabTimetableEvents } from "@/lib/mockTimetable";
@@ -47,11 +49,16 @@ function getUniqueValues(items, key) {
 
 function truncate(value, maxLength = 115) {
   const text = String(value || "No description provided.");
-  return text.length > maxLength ? `${text.slice(0, maxLength).trim()}...` : text;
+  return text.length > maxLength
+    ? `${text.slice(0, maxLength).trim()}...`
+    : text;
 }
 
 function scheduleMatchesDate(item, selectedDate) {
-  return String(item.start_date) <= selectedDate && String(item.end_date) >= selectedDate;
+  return (
+    String(item.start_date) <= selectedDate &&
+    String(item.end_date) >= selectedDate
+  );
 }
 
 function addDays(date, days) {
@@ -126,6 +133,10 @@ function getScheduleItemLabel(type) {
   }
 }
 
+function isEquipmentBookable(item) {
+  return item?.status === "available";
+}
+
 export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
   const router = useRouter();
   const [labs, setLabs] = useState([]);
@@ -170,11 +181,15 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
       const [labsResult, equipmentResult] = await Promise.all([
         supabase
           .from("labs")
-          .select("id, name, description, location, status, price_per_hour, course")
+          .select(
+            "id, name, description, location, status, price_per_hour, course, staff_name, staff_email, staff_contact",
+          )
           .order("name", { ascending: true }),
         supabase
           .from("equipment")
-          .select("id, name, description, location, status, price_per_hour, course, lab_id, staff_name, staff_email, staff_contact")
+          .select(
+            "id, name, description, location, status, price_per_hour, course, lab_id, staff_name, staff_email, staff_contact",
+          )
           .order("name", { ascending: true }),
       ]);
 
@@ -226,7 +241,9 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
     return grouped;
   }, [equipment]);
   const selectedLab = labs.find((lab) => lab.id === selectedLabId);
-  const selectedEquipment = equipment.find((item) => item.id === selectedEquipmentId);
+  const selectedEquipment = equipment.find(
+    (item) => item.id === selectedEquipmentId,
+  );
   const selectedLabEquipment = equipmentByLab.get(selectedLabId) || [];
   const keyword = search.trim().toLowerCase();
   const filteredLabs = labs.filter((lab) => {
@@ -267,7 +284,9 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
     const supabase = getSupabaseBrowserClient();
     const { data, error } = await supabase
       .from("equipment_bookings")
-      .select("id, equipment_id, start_date, end_date, start_time, end_time, status")
+      .select(
+        "id, equipment_id, start_date, end_date, start_time, end_time, status",
+      )
       .eq("lab_id", labId)
       .in("status", [
         "pending",
@@ -310,13 +329,16 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
   }
 
   function openEquipmentDetail(item) {
-    if (basketEquipmentIds.has(item.id) || item.status === "maintenance") return;
+    if (basketEquipmentIds.has(item.id) || !isEquipmentBookable(item))
+      return;
     setSelectedEquipmentId(item.id);
     setMessage("");
     setErrorMessage("");
     setAddSuccessMessage("");
     loadSchedule(item.lab_id);
-    router.push(`/booking/${encodeURIComponent(item.lab_id)}/${encodeURIComponent(item.id)}`);
+    router.push(
+      `/booking/${encodeURIComponent(item.lab_id)}/${encodeURIComponent(item.id)}`,
+    );
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -324,7 +346,9 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
     setForm((current) => ({
       ...current,
       [key]: value,
-      ...(key === "startDate" && current.endDate < value ? { endDate: value } : {}),
+      ...(key === "startDate" && current.endDate < value
+        ? { endDate: value }
+        : {}),
     }));
   }
 
@@ -396,10 +420,10 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
       ];
 
       saveStoredBookingRequestItems(nextItems);
-      setBasketEquipmentIds(
-        new Set(nextItems.map((item) => item.equipmentId)),
+      setBasketEquipmentIds(new Set(nextItems.map((item) => item.equipmentId)));
+      setAddSuccessMessage(
+        `${selectedEquipment.name} added to your booking request.`,
       );
-      setAddSuccessMessage(`${selectedEquipment.name} added to your booking request.`);
       setForm((current) => ({ ...current, bookingReason: "" }));
       setTimeout(() => {
         setSelectedLabId("");
@@ -504,7 +528,10 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
                   type="date"
                   value={form.startDate}
                   min={getDefaultBookingDateString()}
-                  onChange={(event) => updateForm("startDate", event.target.value)}
+                  max={getMaxBookingDateString()}
+                  onChange={(event) =>
+                    updateForm("startDate", event.target.value)
+                  }
                   required
                 />
               </Field>
@@ -513,14 +540,19 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
                   type="date"
                   value={form.endDate}
                   min={form.startDate}
-                  onChange={(event) => updateForm("endDate", event.target.value)}
+                  max={getMaxBookingDateString()}
+                  onChange={(event) =>
+                    updateForm("endDate", event.target.value)
+                  }
                   required
                 />
               </Field>
               <Field label="Start Time">
                 <select
                   value={form.startTime}
-                  onChange={(event) => updateForm("startTime", event.target.value)}
+                  onChange={(event) =>
+                    updateForm("startTime", event.target.value)
+                  }
                   className="h-11 w-full rounded-xl border border-border-light bg-white px-3 text-sm text-text-main outline-none focus:border-primary"
                 >
                   {START_TIME_OPTIONS.map((time) => (
@@ -531,7 +563,9 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
               <Field label="End Time">
                 <select
                   value={form.endTime}
-                  onChange={(event) => updateForm("endTime", event.target.value)}
+                  onChange={(event) =>
+                    updateForm("endTime", event.target.value)
+                  }
                   className="h-11 w-full rounded-xl border border-border-light bg-white px-3 text-sm text-text-main outline-none focus:border-primary"
                 >
                   {END_TIME_OPTIONS.map((time) => (
@@ -542,7 +576,9 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
               <Field label="Purpose / Reason" full>
                 <textarea
                   value={form.bookingReason}
-                  onChange={(event) => updateForm("bookingReason", event.target.value)}
+                  onChange={(event) =>
+                    updateForm("bookingReason", event.target.value)
+                  }
                   rows={4}
                   className="w-full resize-none rounded-xl border border-border-light bg-white px-3 py-2 text-sm text-text-main outline-none focus:border-primary"
                   placeholder="Describe how this equipment will be used..."
@@ -553,7 +589,9 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
             <div className="mt-6 flex flex-col items-end gap-3">
               <Button
                 type="submit"
-                disabled={isChecking || basketEquipmentIds.has(selectedEquipment.id)}
+                disabled={
+                  isChecking || basketEquipmentIds.has(selectedEquipment.id)
+                }
                 className="w-auto"
               >
                 {basketEquipmentIds.has(selectedEquipment.id)
@@ -578,13 +616,15 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
     <main className="min-h-full bg-background-main px-4 py-6 md:px-7 md:py-8">
       <section className="mx-auto max-w-7xl space-y-8">
         {!selectedLab ? (
-        <div>
-          <h1 className="text-3xl font-semibold text-text-main">Booking</h1>
-          <p className="mt-2 text-sm text-text-muted">
-            Browse labs, choose equipment, and add each item to one request.
-          </p>
-        </div>
+          <div>
+            <h1 className="text-3xl font-semibold text-text-main">Booking</h1>
+            <p className="mt-2 text-sm text-text-muted">
+              Browse labs, choose equipment, and add each item to one request.
+            </p>
+          </div>
         ) : null}
+
+        <BookingInstructions />
 
         {message ? (
           <p className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
@@ -643,13 +683,14 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
                 {filteredLabs.map((lab) => {
                   const labEquipment = equipmentByLab.get(lab.id) || [];
                   const availableCount = labEquipment.filter(
-                    (item) => item.status !== "maintenance",
+                    (item) => isEquipmentBookable(item),
                   ).length;
                   const programmeLabels = [
                     ...new Set(
-                      [lab.course, ...labEquipment.map((item) => item.course)].filter(
-                        Boolean,
-                      ),
+                      [
+                        lab.course,
+                        ...labEquipment.map((item) => item.course),
+                      ].filter(Boolean),
                     ),
                   ].slice(0, 2);
 
@@ -742,6 +783,23 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
               <p className="mt-4 max-w-4xl text-lg leading-relaxed text-text-muted">
                 {selectedLab.description || "No description provided."}
               </p>
+              <div className="mt-5 grid gap-4 md:grid-cols-3">
+                <InfoCard
+                  icon={<UserRound className="h-4 w-4 text-primary" />}
+                  label="Staff Name"
+                  value={selectedLab.staff_name || "-"}
+                />
+                <InfoCard
+                  icon={<UserRound className="h-4 w-4 text-primary" />}
+                  label="Staff Email"
+                  value={selectedLab.staff_email || "-"}
+                />
+                <InfoCard
+                  icon={<UserRound className="h-4 w-4 text-primary" />}
+                  label="Staff Contact"
+                  value={selectedLab.staff_contact || "-"}
+                />
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-3">
@@ -785,54 +843,61 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
 
                 {filteredLabEquipment.map((item) => {
                   const isAlreadyInRequest = basketEquipmentIds.has(item.id);
-                  const isUnavailable =
-                    item.status === "maintenance" || isAlreadyInRequest;
+                  const isUnavailable = !isEquipmentBookable(item) || isAlreadyInRequest;
+                  const statusLabel =
+                    item.status === "maintenance"
+                      ? "Maintenance"
+                      : item.status === "unavailable"
+                        ? "Unavailable"
+                        : isAlreadyInRequest
+                          ? "Already in request"
+                          : "Available";
 
                   return (
-                  <button
-                    type="button"
-                    key={item.id}
-                    onClick={() => openEquipmentDetail(item)}
-                    disabled={isUnavailable}
-                    className="flex w-full flex-col gap-4 rounded-2xl border border-border-light bg-white p-6 text-left transition-colors hover:border-primary focus:border-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-70 md:flex-row md:items-center md:justify-between"
-                  >
-                    <div className="flex min-w-0 gap-5">
-                      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                        <Activity className="h-7 w-7" />
-                      </div>
-                      <div className="min-w-0">
-                        <h3 className="text-xl font-semibold text-text-main">
-                          {item.name}
-                        </h3>
-                        <p className="mt-1 text-sm text-text-muted">
-                          {item.id} | {truncate(item.description, 95)}
-                        </p>
-                        <div className="mt-3 flex flex-wrap items-center gap-3">
-                          <span
+                    <button
+                      type="button"
+                      key={item.id}
+                      onClick={() => openEquipmentDetail(item)}
+                      disabled={isUnavailable}
+                      className="flex w-full flex-col gap-4 rounded-2xl border border-border-light bg-white p-6 text-left transition-colors hover:border-primary focus:border-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-70 md:flex-row md:items-center md:justify-between"
+                    >
+                      <div className="flex min-w-0 gap-5">
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                          <Activity className="h-7 w-7" />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="text-xl font-semibold text-text-main">
+                            {item.name}
+                          </h3>
+                          <p className="mt-1 text-sm text-text-muted">
+                            {item.id} | {truncate(item.description, 95)}
+                          </p>
+                          <div className="mt-3 flex flex-wrap items-center gap-3">
+                            <span
                             className={`rounded-full px-3 py-1 text-xs font-semibold uppercase ${
                               item.status === "maintenance"
                                 ? "bg-yellow-100 text-yellow-700"
+                                : item.status === "unavailable"
+                                  ? "bg-red-100 text-red-700"
                                 : isAlreadyInRequest
                                   ? "bg-border-light text-text-muted"
-                                : "bg-emerald-100 text-emerald-700"
+                                  : "bg-emerald-100 text-emerald-700"
                             }`}
                           >
-                            {item.status === "maintenance"
-                              ? "Maintenance"
-                              : isAlreadyInRequest
-                                ? "Already in request"
-                                : "Available"}
-                          </span>
-                          <span className="font-semibold text-primary">
-                            {formatRmFromUsd(item.price_per_hour || 0)}/hr
-                          </span>
+                              {statusLabel}
+                            </span>
+                            <span className="font-semibold text-primary">
+                              {formatRmFromUsd(item.price_per_hour || 0)}/hr
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <span className="text-sm font-semibold text-primary">
-                      {isAlreadyInRequest ? "Already in basket" : "View Details"}
-                    </span>
-                  </button>
+                      <span className="text-sm font-semibold text-primary">
+                        {isAlreadyInRequest
+                          ? "Already in basket"
+                          : "View Details"}
+                      </span>
+                    </button>
                   );
                 })}
 
@@ -909,14 +974,16 @@ function SchedulePanel({
           endTime: item.end_time?.slice(0, 5),
         };
       });
-    const classEvents = getLabTimetableEvents(labId, day.dateString).map((event) => ({
-      id: event.id,
-      type: "class",
-      title: event.title,
-      subtitle: "Class timetable",
-      startTime: event.startTime,
-      endTime: event.endTime,
-    }));
+    const classEvents = getLabTimetableEvents(labId, day.dateString).map(
+      (event) => ({
+        id: event.id,
+        type: "class",
+        title: event.title,
+        subtitle: "Class timetable",
+        startTime: event.startTime,
+        endTime: event.endTime,
+      }),
+    );
 
     return [...bookingEvents, ...classEvents].sort((left, right) =>
       String(left.startTime).localeCompare(String(right.startTime)),
@@ -930,9 +997,7 @@ function SchedulePanel({
           <h3 className="text-2xl font-semibold text-text-main">
             Weekly Schedule
           </h3>
-          <p className="mt-1 text-sm text-text-muted">
-            {weekRangeLabel}
-          </p>
+          <p className="mt-1 text-sm text-text-muted">{weekRangeLabel}</p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <button

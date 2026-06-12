@@ -107,7 +107,7 @@ export function getBookingDates(startDateString, endDateString) {
       if (!isBookingDateStringAllowed(dateString)) {
         return {
           error:
-            "Bookings must be made at least 7 days in advance on weekdays.",
+            "Bookings must be made at least 7 days in advance, no more than 2 weeks ahead, and on weekdays.",
         };
       }
 

@@ -1,4 +1,5 @@
 export const BOOKING_ADVANCE_DAYS = 7;
+export const BOOKING_MAX_ADVANCE_DAYS = 14;
 export const OFFICE_START_TIME = "08:00";
 export const OFFICE_END_TIME = "18:00";
 
@@ -89,6 +90,16 @@ export function getMinBookingDateString() {
   return formatDateInput(getMinBookingDate());
 }
 
+export function getMaxBookingDate() {
+  const maxDate = getTodayDate();
+  maxDate.setDate(maxDate.getDate() + BOOKING_MAX_ADVANCE_DAYS);
+  return maxDate;
+}
+
+export function getMaxBookingDateString() {
+  return formatDateInput(getMaxBookingDate());
+}
+
 export function isWeekendDate(date) {
   const day = date.getDay();
   return day === 0 || day === 6;
@@ -96,7 +107,8 @@ export function isWeekendDate(date) {
 
 export function isBookingDateAllowed(date) {
   const minDate = getMinBookingDate();
-  return date >= minDate && !isWeekendDate(date);
+  const maxDate = getMaxBookingDate();
+  return date >= minDate && date <= maxDate && !isWeekendDate(date);
 }
 
 export function isBookingDateStringAllowed(dateString) {

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BookingInstructions } from "@/components/booking-instructions";
 import { getCurrentSession } from "@/lib/supabase/auth";
 import { formatRmFromUsd } from "@/lib/currency";
 import { downloadBookingReceiptPdf } from "@/lib/bookingReceiptPdf";
@@ -26,6 +27,17 @@ function formatDateRange(item) {
   if (item.startDate === item.endDate) return item.startDate;
   return `${item.startDate} to ${item.endDate}`;
 }
+
+const ESTIMATED_PRICE_NOTE = "Final price decision is based on PPMU review.";
+const USER_STATUS_OPTIONS = [
+  "UTM STUDENT(UNDERGRADUATE)",
+  "UTM STUDENT(POSTGRADUATE)",
+  "UTM STAFF",
+  "IPTA/IPTS STUDENT",
+  "INDUSTRY",
+  "INTERN",
+  "FINAL YEAR PROJECT (FYP)",
+];
 
 export default function CompleteBookingPage() {
   const router = useRouter();
@@ -50,6 +62,8 @@ export default function CompleteBookingPage() {
     lectName: "",
     lectEmail: "",
     lectContact: "",
+    lectFaculty: "",
+    lectId: "",
     votNumber: "",
     requestDetails: "",
     picCode: "",
@@ -282,6 +296,8 @@ export default function CompleteBookingPage() {
             </span>
           </div>
 
+          <BookingInstructions />
+
           <div className="space-y-4">
             {items.length === 0 ? (
               <div className="rounded-2xl border border-border-light bg-white px-4 py-12 text-center">
@@ -351,6 +367,9 @@ export default function CompleteBookingPage() {
                       <p className="mt-1 text-2xl font-semibold text-primary">
                         {formatRmFromUsd(item.estimatedTotal || 0)}
                       </p>
+                      <p className="mt-2 text-xs leading-snug text-text-muted">
+                        {ESTIMATED_PRICE_NOTE}
+                      </p>
                     </div>
                     <div className="flex gap-2 md:flex-col">
                       <Button
@@ -385,6 +404,9 @@ export default function CompleteBookingPage() {
             <p className="text-sm text-text-muted">Estimated total</p>
             <p className="mt-1 text-3xl font-semibold text-primary">
               {formatRmFromUsd(total)}
+            </p>
+            <p className="mt-2 text-xs leading-snug text-text-muted">
+              {ESTIMATED_PRICE_NOTE}
             </p>
           </div>
 
@@ -435,10 +457,12 @@ export default function CompleteBookingPage() {
                   className="h-11 w-full rounded-xl border border-border-light bg-white px-3 text-sm text-text-main outline-none transition-colors focus:border-primary"
                   required
                 >
-                  <option value="">Select study level</option>
-                  <option value="diploma">Diploma</option>
-                  <option value="undergraduate">Undergraduate</option>
-                  <option value="postgraduate">Postgraduate</option>
+                  <option value="">Select user status</option>
+                  {USER_STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
                 </select>
               </Field>
             </FormSection>
@@ -469,6 +493,22 @@ export default function CompleteBookingPage() {
                   onChange={(event) =>
                     updateForm("lectContact", event.target.value)
                   }
+                  required
+                />
+              </Field>
+              <Field label="Faculty" required>
+                <Input
+                  value={form.lectFaculty}
+                  onChange={(event) =>
+                    updateForm("lectFaculty", event.target.value)
+                  }
+                  required
+                />
+              </Field>
+              <Field label="ID Number" required>
+                <Input
+                  value={form.lectId}
+                  onChange={(event) => updateForm("lectId", event.target.value)}
                   required
                 />
               </Field>
@@ -582,6 +622,7 @@ export default function CompleteBookingPage() {
               <Detail
                 label="Estimated Price"
                 value={formatRmFromUsd(selectedItem.estimatedTotal || 0)}
+                note={ESTIMATED_PRICE_NOTE}
               />
               <Detail
                 label="Staff Name"
@@ -638,11 +679,14 @@ function Field({ label, children, required = false }) {
   );
 }
 
-function Detail({ label, value }) {
+function Detail({ label, value, note }) {
   return (
     <div className="rounded-xl border border-border-light bg-background-main p-3">
       <p className="text-xs font-semibold uppercase text-text-muted">{label}</p>
       <p className="mt-1 font-semibold text-text-main">{value}</p>
+      {note ? (
+        <p className="mt-2 text-xs leading-snug text-text-muted">{note}</p>
+      ) : null}
     </div>
   );
 }

@@ -172,6 +172,8 @@ export function createBookingReceiptPdfDoc(booking = {}) {
       ["Lecturer Name", booking.lect_name || booking.lecturerName],
       ["Lecturer Email", booking.lect_email || booking.lecturerEmail],
       ["Lecturer Contact", booking.lect_contact || booking.lecturerContact],
+      ["Faculty", booking.lect_faculty || booking.lecturerFaculty],
+      ["ID Number", booking.lect_id || booking.lecturerId],
     ],
     margin,
     y,

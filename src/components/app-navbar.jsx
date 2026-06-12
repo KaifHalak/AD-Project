@@ -15,7 +15,8 @@ export default function AppNavbar() {
   const [bookingRequestCount, setBookingRequestCount] = useState(0);
 
   const accountActive = pathname.startsWith("/account");
-  const ppmuActive = pathname.startsWith("/PPMU");
+  const editEquipmentActive = pathname.startsWith("/PPMU/edit-equipment");
+  const ppmuActive = pathname.startsWith("/PPMU") && !editEquipmentActive;
   const unitLeaderActive = pathname.startsWith("/unit-leader");
   const bookingActive = pathname.startsWith("/booking");
   const completeBookingActive = pathname.startsWith("/complete-booking");
@@ -146,16 +147,28 @@ export default function AppNavbar() {
           </Link>
 
           {role === "ppmu" ? (
-            <Link
-              href="/PPMU"
-              className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
-                ppmuActive
-                  ? "border-primary bg-primary text-white"
-                  : "border-border-light bg-white text-text-main hover:bg-background-main"
-              }`}
-            >
-              PPMU
-            </Link>
+            <>
+              <Link
+                href="/PPMU"
+                className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+                  ppmuActive
+                    ? "border-primary bg-primary text-white"
+                    : "border-border-light bg-white text-text-main hover:bg-background-main"
+                }`}
+              >
+                PPMU
+              </Link>
+              <Link
+                href="/PPMU/edit-equipment"
+                className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+                  editEquipmentActive
+                    ? "border-primary bg-primary text-white"
+                    : "border-border-light bg-white text-text-main hover:bg-background-main"
+                }`}
+              >
+                Edit Equipment
+              </Link>
+            </>
           ) : null}
 
           {role === "unit_leader" ? (

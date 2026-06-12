@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Wrench } from "lucide-react";
 import { getCurrentSession } from "@/lib/supabase/auth";
 import { formatRmFromUsd } from "@/lib/currency";
 
@@ -51,6 +50,8 @@ export default function ApprovalPage() {
     const matchesSearch =
       item.user_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.lect_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.lect_faculty?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.lect_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       String(item.id).includes(searchTerm);
 
     // Status filter
@@ -146,29 +147,18 @@ export default function ApprovalPage() {
           PPMU Approval Dashboard
         </h1>
         <p className="text-gray-500 mt-2">
-          Perform final review for approved booking requests.
+          Perform final review for unit-leader-recommended booking requests.
         </p>
       </div>
 
       <div className="flex justify-center pb-10">
         <div className="w-3/4 max-w-6xl space-y-8">
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => router.push("/PPMU/edit-equipment")}
-              className="inline-flex items-center gap-2 rounded-xl bg-[#b0125b] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-85"
-            >
-              <Wrench className="h-4 w-4" />
-              Edit Equipment
-            </button>
-          </div>
-
           <div className="bg-[#fafafa] border border-border-light p-5 rounded-2xl shadow-sm">
             <h2 className="text-lg font-semibold text-[#b0125b]">
               How to review requests
             </h2>
             <p className="text-sm text-gray-600 mt-2">
-              This dashboard lists bookings already approved by a unit leader.
+              This dashboard lists bookings already recommended by a unit leader.
               Use search and filters to narrow the queue, open View Details to
               inspect the request, then submit the final PPMU decision.
             </p>
@@ -300,7 +290,7 @@ export default function ApprovalPage() {
                       onSort={handleSort}
                     />
                     <SortableHeader
-                      label="UNIT LEADER STATUS"
+                      label="UNIT LEADER RECOMMENDATION"
                       column="unit_leader_status"
                       sortConfig={sortConfig}
                       onSort={handleSort}
@@ -328,6 +318,9 @@ export default function ApprovalPage() {
                         <div className="font-medium">{item.lect_name || "-"}</div>
                         <div className="text-xs text-gray-500">
                           {item.lect_email || "-"}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {item.lect_faculty || "-"} | ID {item.lect_id || "-"}
                         </div>
                       </td>
                       <td className="p-4">{formatDateTime(item.created_at)}</td>
@@ -443,6 +436,8 @@ function StatusBadge({ status, isFinal }) {
 
   if (isFinal && status === "Pending") {
     displayText = "Pending Final Review";
+  } else if (!isFinal && status === "Approved") {
+    displayText = "Recommended";
   }
 
   return (

@@ -5,8 +5,7 @@ import {
   getRequesterProfile,
 } from "@/lib/bookingTokenAuth";
 import {
-  sendBookingDecisionEmail,
-  sendPpmuApprovalPicEmail,
+  sendPpmuDecisionRecipientEmail,
 } from "@/lib/bookingDecisionEmail";
 import { createQuotationPdfBuffer } from "@/lib/quotationPdf";
 import {
@@ -70,6 +69,17 @@ function getBillableTotal(items) {
       sum + (item.resourceStatus === "rejected" ? 0 : Number(item.totalPrice || 0)),
     0,
   );
+}
+
+function getUniqueRecipients(recipients) {
+  const seen = new Set();
+
+  return (recipients || []).filter((recipient) => {
+    const email = String(recipient?.email || "").trim().toLowerCase();
+    if (!email || seen.has(email)) return false;
+    seen.add(email);
+    return true;
+  });
 }
 
 async function requirePpmuRequester(request) {
@@ -338,6 +348,8 @@ function buildQuotationPayloadFromRequest(requestDetail) {
     lecturerName: requestDetail.lect_name || "",
     lecturerEmail: requestDetail.lect_email || "",
     lecturerContact: requestDetail.lect_contact || "",
+    lecturerFaculty: requestDetail.lect_faculty || "",
+    lecturerId: requestDetail.lect_id || "",
     staffName: getValueList(quotationItems.map((item) => {
       const source = (requestDetail.items || []).find(
         (bookingItem) => bookingItem.equipment_id === item.resourceId,
@@ -424,8 +436,11 @@ async function sendProcessedApprovalEmails({ admin, requestDetail, processRecord
     (item) => item.status === "approved",
   );
 
-  if (requestDetail.display_status_type !== OVERALL_STATUS.PROCESSED || approvedItems.length === 0) {
-    return { requester: null, pic: null };
+  if (
+    requestDetail.display_status_type !== OVERALL_STATUS.PROCESSED ||
+    approvedItems.length === 0
+  ) {
+    return { student: null, lecturer: null, pic: null, unitLeader: null };
   }
 
   const { quotation, error: quotationError } = await getOrCreateQuotationForRequest(
@@ -445,6 +460,9 @@ async function sendProcessedApprovalEmails({ admin, requestDetail, processRecord
           lecturerName: quotationPayload.lecturerName || requestDetail.lect_name,
           lecturerEmail: quotationPayload.lecturerEmail || requestDetail.lect_email,
           lecturerContact: quotationPayload.lecturerContact || requestDetail.lect_contact,
+          lecturerFaculty:
+            quotationPayload.lecturerFaculty || requestDetail.lect_faculty,
+          lecturerId: quotationPayload.lecturerId || requestDetail.lect_id,
         }),
         contentType: "application/pdf",
       };
@@ -453,19 +471,6 @@ async function sendProcessedApprovalEmails({ admin, requestDetail, processRecord
     }
   }
 
-  const requester = {
-    username: requestDetail.user_name || "",
-    email: requestDetail.user_email || "",
-  };
-  const processRecordForRequester =
-    processRecord.decision === "approved"
-      ? processRecord
-      : {
-          ...processRecord,
-          decision: "approved",
-          remarks: "Approved items are listed in the attached quotation.",
-          rejection_reason: null,
-        };
   const bookingForEmail = {
     ...requestDetail,
     booking_type: "equipment",
@@ -477,36 +482,140 @@ async function sendProcessedApprovalEmails({ admin, requestDetail, processRecord
     start_time: requestDetail.start_time || requestDetail.items?.[0]?.start_time || "",
     end_time: requestDetail.end_time || requestDetail.items?.[0]?.end_time || "",
   };
-  const requesterEmail = quotationAttachment
-    ? await sendBookingDecisionEmail({
-        admin,
-        type: "request",
-        id: requestDetail.id,
-        processRecord: processRecordForRequester,
+  const unitLeaderRecipients = getUniqueRecipients(
+    (requestDetail.items || []).map((item) => ({
+      username: item.unit_leader_name || "",
+      email: item.unit_leader_email || "",
+    })),
+  );
+  const attachmentError = {
+    sent: false,
+    error: quotationError?.message || "Quotation PDF attachment could not be generated.",
+  };
+  const studentEmail = quotationAttachment
+    ? await sendPpmuDecisionRecipientEmail({
         booking: bookingForEmail,
-        requester,
+        recipient: {
+          username: requestDetail.user_name || "",
+          email: requestDetail.user_email || "",
+        },
+        recipientRole: "student",
+        ppmu,
+        processRecord,
         attachments: [quotationAttachment],
       })
-    : {
-        sent: false,
-        error: quotationError?.message || "Quotation PDF attachment could not be generated.",
-      };
-  const picEmail = requestDetail.pic_email
-    ? await sendPpmuApprovalPicEmail({
+    : attachmentError;
+  const lecturerEmail = quotationAttachment
+    ? await sendPpmuDecisionRecipientEmail({
         booking: bookingForEmail,
-        pic: {
-          username: requestDetail.pic_name || "",
-          email: requestDetail.pic_email || "",
+        recipient: {
+          username: requestDetail.lect_name || "",
+          email: requestDetail.lect_email || "",
         },
+        recipientRole: "lecturer",
         ppmu,
+        processRecord,
+        attachments: [quotationAttachment],
       })
-    : { sent: false, skipped: true, reason: "No PIC email for this booking." };
+    : attachmentError;
+  const picEmail = await sendPpmuDecisionRecipientEmail({
+    booking: bookingForEmail,
+    recipient: {
+      username: requestDetail.pic_name || "",
+      email: requestDetail.pic_email || "",
+    },
+    recipientRole: "pic",
+    ppmu,
+    processRecord,
+  });
+  const unitLeaderEmails = [];
+
+  for (const unitLeader of unitLeaderRecipients) {
+    unitLeaderEmails.push(
+      await sendPpmuDecisionRecipientEmail({
+        booking: bookingForEmail,
+        recipient: unitLeader,
+        recipientRole: "unit_leader",
+        ppmu,
+        processRecord,
+      }),
+    );
+  }
 
   return {
-    requester: requesterEmail,
+    student: studentEmail,
+    lecturer: lecturerEmail,
     pic: picEmail,
+    unitLeader: unitLeaderEmails,
     quotation: quotationError ? { sent: false, error: quotationError.message } : quotation,
   };
+}
+
+async function sendPpmuRejectionEmails({ requestDetail, processRecord, ppmu }) {
+  const bookingForEmail = {
+    ...requestDetail,
+    booking_type: "equipment",
+    item_id: requestDetail.id,
+    item_name:
+      requestDetail.items?.length === 1
+        ? requestDetail.items[0]?.equipment_name || requestDetail.items[0]?.equipment_id
+        : `${requestDetail.items?.length || 0} equipment items`,
+    start_time: requestDetail.start_time || requestDetail.items?.[0]?.start_time || "",
+    end_time: requestDetail.end_time || requestDetail.items?.[0]?.end_time || "",
+  };
+  const unitLeaderRecipients = getUniqueRecipients(
+    (requestDetail.items || []).map((item) => ({
+      username: item.unit_leader_name || "",
+      email: item.unit_leader_email || "",
+    })),
+  );
+  const notifications = {
+    student: await sendPpmuDecisionRecipientEmail({
+      booking: bookingForEmail,
+      recipient: {
+        username: requestDetail.user_name || "",
+        email: requestDetail.user_email || "",
+      },
+      recipientRole: "student",
+      ppmu,
+      processRecord,
+    }),
+    lecturer: await sendPpmuDecisionRecipientEmail({
+      booking: bookingForEmail,
+      recipient: {
+        username: requestDetail.lect_name || "",
+        email: requestDetail.lect_email || "",
+      },
+      recipientRole: "lecturer",
+      ppmu,
+      processRecord,
+    }),
+    pic: await sendPpmuDecisionRecipientEmail({
+      booking: bookingForEmail,
+      recipient: {
+        username: requestDetail.pic_name || "",
+        email: requestDetail.pic_email || "",
+      },
+      recipientRole: "pic",
+      ppmu,
+      processRecord,
+    }),
+    unitLeader: [],
+  };
+
+  for (const unitLeader of unitLeaderRecipients) {
+    notifications.unitLeader.push(
+      await sendPpmuDecisionRecipientEmail({
+        booking: bookingForEmail,
+        recipient: unitLeader,
+        recipientRole: "unit_leader",
+        ppmu,
+        processRecord,
+      }),
+    );
+  }
+
+  return notifications;
 }
 
 export async function GET(request, { params }) {
@@ -603,14 +712,14 @@ export async function POST(request, { params }) {
     if (unitLeaderError) {
       console.error("Error checking unit leader approval:", unitLeaderError);
       return NextResponse.json(
-        { error: "Could not verify unit leader approval." },
+        { error: "Could not verify unit leader recommendation." },
         { status: 500 },
       );
     }
 
     if (!unitLeaderProcess) {
       return NextResponse.json(
-        { error: "Only unit leader approved items can be reviewed by PPMU." },
+        { error: "Only unit leader recommended items can be reviewed by PPMU." },
         { status: 400 },
       );
     }
@@ -682,17 +791,40 @@ export async function POST(request, { params }) {
       console.error("Error loading request after PPMU decision:", updatedDetailError);
     } else if (updatedRequestDetail) {
       try {
-        approvalNotifications = await sendProcessedApprovalEmails({
-          admin,
-          requestDetail: updatedRequestDetail,
-          processRecord,
-          ppmu: requester,
-        });
+        if (decision === "approved") {
+          approvalNotifications = await sendProcessedApprovalEmails({
+            admin,
+            requestDetail: updatedRequestDetail,
+            processRecord,
+            ppmu: requester,
+          });
+        } else {
+          approvalNotifications = {
+            rejection: await sendPpmuRejectionEmails({
+              requestDetail: updatedRequestDetail,
+              processRecord,
+              ppmu: requester,
+            }),
+            processedApproval: await sendProcessedApprovalEmails({
+              admin,
+              requestDetail: updatedRequestDetail,
+              processRecord: {
+                ...processRecord,
+                decision: "approved",
+                remarks: "Approved items are listed in the attached quotation.",
+                rejection_reason: null,
+              },
+              ppmu: requester,
+            }),
+          };
+        }
       } catch (notificationError) {
         console.error("Error sending PPMU approval notifications:", notificationError);
         approvalNotifications = {
-          requester: { sent: false, error: notificationError.message },
+          student: { sent: false, error: notificationError.message },
+          lecturer: { sent: false, error: notificationError.message },
           pic: { sent: false, error: notificationError.message },
+          unitLeader: { sent: false, error: notificationError.message },
         };
       }
     }

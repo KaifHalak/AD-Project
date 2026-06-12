@@ -26,7 +26,7 @@ function formatStudyLevel(value) {
 
 function formatDecision(process) {
   if (!process) return "Pending";
-  return process.decision === "approved" ? "Approved" : "Rejected";
+  return process.decision === "approved" ? "Recommended" : "Rejected";
 }
 
 function statusClass(status) {
@@ -279,6 +279,8 @@ export default function UnitLeaderRequestDetailPage() {
             <Info label="Lecturer Name" value={data.lect_name || "-"} />
             <Info label="Lecturer Email" value={data.lect_email || "-"} />
             <Info label="Lecturer Contact" value={data.lect_contact || "-"} />
+            <Info label="Faculty" value={data.lect_faculty || "-"} />
+            <Info label="ID Number" value={data.lect_id || "-"} />
             <Info label="VOT Number" value={data.vot_number || "-"} />
           </DetailSection>
 
@@ -311,7 +313,7 @@ export default function UnitLeaderRequestDetailPage() {
                 disabled={reviewableCount === 0 || Boolean(isSubmitting)}
                 className="flex-1 rounded-xl border border-green-400 px-4 py-3 font-semibold text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isSubmitting === "bulk-approved" ? "Saving..." : "Approve All"}
+                {isSubmitting === "bulk-approved" ? "Saving..." : "Recommend All"}
               </button>
               <button
                 type="button"
@@ -399,7 +401,7 @@ export default function UnitLeaderRequestDetailPage() {
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <ReviewCard
-                    title="Unit Leader Review"
+                    title="Unit Leader Recommendation"
                     decision={formatDecision(item.unit_leader_process)}
                     process={item.unit_leader_process}
                   />
@@ -437,7 +439,7 @@ export default function UnitLeaderRequestDetailPage() {
                       disabled={!item.can_review || Boolean(isSubmitting)}
                       className="flex-1 rounded-xl border border-green-400 px-4 py-3 font-semibold text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {isSubmitting === `${item.id}-approved` ? "Saving..." : "Approve"}
+                      {isSubmitting === `${item.id}-approved` ? "Saving..." : "Recommend"}
                     </button>
                     <button
                       type="button"

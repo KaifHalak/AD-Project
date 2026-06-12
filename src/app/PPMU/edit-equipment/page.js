@@ -20,6 +20,7 @@ import { getCurrentSession } from "@/lib/supabase/auth";
 const STATUS_OPTIONS = [
   { value: "available", label: "Available" },
   { value: "maintenance", label: "Under Maintenance" },
+  { value: "unavailable", label: "Unavailable" },
 ];
 
 function getUniqueValues(items, key) {
@@ -32,19 +33,25 @@ function truncate(value, maxLength = 115) {
 }
 
 function normalizeStatus(value) {
-  return value === "maintenance" ? "maintenance" : "available";
+  if (value === "maintenance") return "maintenance";
+  if (value === "unavailable") return "unavailable";
+  return "available";
 }
 
 function getStatusLabel(value) {
-  return normalizeStatus(value) === "maintenance"
-    ? "Under Maintenance"
-    : "Available";
+  const status = normalizeStatus(value);
+
+  if (status === "maintenance") return "Under Maintenance";
+  if (status === "unavailable") return "Unavailable";
+  return "Available";
 }
 
 function getStatusClass(value) {
-  return normalizeStatus(value) === "maintenance"
-    ? "bg-yellow-100 text-yellow-700"
-    : "bg-emerald-100 text-emerald-700";
+  const status = normalizeStatus(value);
+
+  if (status === "maintenance") return "bg-yellow-100 text-yellow-700";
+  if (status === "unavailable") return "bg-red-100 text-red-700";
+  return "bg-emerald-100 text-emerald-700";
 }
 
 export default function EditEquipmentPage() {
@@ -428,7 +435,7 @@ export default function EditEquipmentPage() {
                 {filteredLabs.map((lab) => {
                   const labEquipment = equipmentByLab.get(lab.id) || [];
                   const availableCount = labEquipment.filter(
-                    (item) => normalizeStatus(item.status) !== "maintenance",
+                    (item) => normalizeStatus(item.status) === "available",
                   ).length;
                   const programmeLabels = [
                     ...new Set(

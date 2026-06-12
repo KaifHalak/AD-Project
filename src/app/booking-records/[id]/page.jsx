@@ -35,6 +35,11 @@ function formatDecision(process) {
   return process.decision === "approved" ? "Approved" : "Rejected";
 }
 
+function formatUnitLeaderDecision(process) {
+  if (!process) return "Pending";
+  return process.decision === "approved" ? "Recommended" : "Rejected";
+}
+
 function formatPpmuDecision(item) {
   if (item.unit_leader_process?.decision === "rejected" && !item.ppmu_process) {
     return "Rejected (by Unit Leader)";
@@ -215,6 +220,8 @@ export default function BookingRecordDetailPage() {
         lecturerName: quotationPayload.lecturerName || booking?.lect_name,
         lecturerEmail: quotationPayload.lecturerEmail || booking?.lect_email,
         lecturerContact: quotationPayload.lecturerContact || booking?.lect_contact,
+        lecturerFaculty: quotationPayload.lecturerFaculty || booking?.lect_faculty,
+        lecturerId: quotationPayload.lecturerId || booking?.lect_id,
       });
     } catch (error) {
       console.error(error);
@@ -366,6 +373,8 @@ export default function BookingRecordDetailPage() {
               label="Lecturer Contact"
               value={booking.lect_contact || "-"}
             />
+            <Info label="Faculty" value={booking.lect_faculty || "-"} />
+            <Info label="ID Number" value={booking.lect_id || "-"} />
             <Info label="VOT Number" value={booking.vot_number || "-"} />
           </DetailSection>
 
@@ -458,8 +467,8 @@ export default function BookingRecordDetailPage() {
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <ReviewCard
-                    title="Unit Leader Review"
-                    decision={formatDecision(item.unit_leader_process)}
+                    title="Unit Leader Recommendation"
+                    decision={formatUnitLeaderDecision(item.unit_leader_process)}
                     process={item.unit_leader_process}
                   />
                   <ReviewCard

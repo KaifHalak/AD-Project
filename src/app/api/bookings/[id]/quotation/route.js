@@ -186,6 +186,8 @@ function buildQuotationPayload({
     lecturerName: booking.lect_name || "",
     lecturerEmail: booking.lect_email || "",
     lecturerContact: booking.lect_contact || "",
+    lecturerFaculty: booking.lect_faculty || "",
+    lecturerId: booking.lect_id || "",
     staffName: getValueList(staffNames),
     staffEmail: getValueList(staffEmails),
     staffContact: getValueList(staffContacts),

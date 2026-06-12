@@ -101,6 +101,13 @@ export async function POST(request) {
       );
     }
 
+    if (equipment.status === "unavailable") {
+      return NextResponse.json(
+        { error: "This equipment is unavailable." },
+        { status: 409 },
+      );
+    }
+
     const item = { ...validation.item, labId: equipment.lab_id };
     const timetableConflict = findTimetableConflictForItem(item);
 
@@ -143,4 +150,3 @@ export async function POST(request) {
     );
   }
 }
-

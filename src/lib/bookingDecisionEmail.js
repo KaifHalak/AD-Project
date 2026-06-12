@@ -16,6 +16,14 @@ function formatReviewerRole(reviewerRole) {
   return reviewerRole === "unit_leader" ? "Unit Leader" : "PPMU";
 }
 
+function getUnitLeaderDecisionText(decision) {
+  return decision === "approved" ? "recommended" : "rejected";
+}
+
+function getRecipientName(recipient) {
+  return recipient?.username || recipient?.name || recipient?.email || "there";
+}
+
 function getBookingDetailsLines(booking) {
   const type = booking.booking_type === "equipment" ? "equipment" : "lab";
   const lines = [`Type: ${type}`];
@@ -32,6 +40,16 @@ function getBookingDetailsLines(booking) {
   return lines;
 }
 
+function getLecturerDetailsLines(booking) {
+  return [
+    `Name: ${booking.lect_name || booking.lecturerName || "-"}`,
+    `Email: ${booking.lect_email || booking.lecturerEmail || "-"}`,
+    `Contact Number: ${booking.lect_contact || booking.lecturerContact || "-"}`,
+    `Faculty: ${booking.lect_faculty || booking.lecturerFaculty || "-"}`,
+    `ID Number: ${booking.lect_id || booking.lecturerId || "-"}`,
+  ];
+}
+
 function getRequesterDetailsLines(booking) {
   return [
     `Name: ${booking.user_name || booking.requester?.username || "-"}`,
@@ -41,6 +59,19 @@ function getRequesterDetailsLines(booking) {
     `Contact Number: ${booking.requester_contact || "-"}`,
     `Student Status: ${booking.study_level || booking.studentStatus || "-"}`,
   ];
+}
+
+function getLecturerDetailsHtml(booking) {
+  return [
+    ["Name", booking.lect_name || booking.lecturerName || "-"],
+    ["Email", booking.lect_email || booking.lecturerEmail || "-"],
+    ["Contact Number", booking.lect_contact || booking.lecturerContact || "-"],
+    ["Faculty", booking.lect_faculty || booking.lecturerFaculty || "-"],
+    ["ID Number", booking.lect_id || booking.lecturerId || "-"],
+  ].map(
+    ([label, value]) =>
+      `<li><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</li>`,
+  );
 }
 
 function getBookingDetailsHtml(booking) {
@@ -108,7 +139,10 @@ function hasSmtpConfig() {
 function buildDecisionEmail({ booking, requester, processRecord }) {
   const reviewerName = formatReviewerRole(processRecord.reviewer_role);
   const bookingType = formatBookingType(booking.booking_type);
-  const decision = formatDecision(processRecord.decision);
+  const decision =
+    processRecord.reviewer_role === "unit_leader"
+      ? getUnitLeaderDecisionText(processRecord.decision)
+      : formatDecision(processRecord.decision);
   const isApproved = processRecord.decision === "approved";
   const reason = processRecord.remarks || processRecord.rejection_reason || "";
   const subject = `${bookingType} booking ${decision} by ${reviewerName}`;
@@ -158,6 +192,171 @@ function buildDecisionEmail({ booking, requester, processRecord }) {
   };
 }
 
+function buildUnitLeaderPpmuEmail({ booking, unitLeader, ppmuUsers }) {
+  const unitLeaderName = unitLeader.username || unitLeader.email || "Unit Leader";
+  const recipients = (ppmuUsers || []).map((user) => user.email).filter(Boolean);
+  const subject = `New booking request recommended by Unit Leader`;
+  const lines = [
+    "Hi PPMU,",
+    "",
+    `${unitLeaderName} has recommended a booking request for PPMU processing.`,
+    "",
+    "Requester details:",
+    ...getRequesterDetailsLines(booking),
+    "",
+    "Lecturer details:",
+    ...getLecturerDetailsLines(booking),
+    "",
+    ...getBookingDetailsLines(booking),
+    "",
+    "AD Booking System",
+  ];
+
+  return {
+    to: recipients,
+    subject,
+    text: lines.join("\n"),
+    html: [
+      "<p>Hi PPMU,</p>",
+      `<p>${escapeHtml(unitLeaderName)} has recommended a booking request for PPMU processing.</p>`,
+      "<p><strong>Requester details:</strong></p>",
+      "<ul>",
+      ...getRequesterDetailsHtml(booking),
+      "</ul>",
+      "<p><strong>Lecturer details:</strong></p>",
+      "<ul>",
+      ...getLecturerDetailsHtml(booking),
+      "</ul>",
+      "<ul>",
+      ...getBookingDetailsHtml(booking),
+      "</ul>",
+      "<p>AD Booking System</p>",
+    ].join(""),
+  };
+}
+
+function buildUnitLeaderPicEmail({ booking, pic, unitLeader, processRecord }) {
+  const greetingName = getRecipientName(pic);
+  const unitLeaderName = unitLeader.username || unitLeader.email || "Unit Leader";
+  const reason = processRecord.remarks || processRecord.rejection_reason || "-";
+  const subject = "Booking request rejected by Unit Leader";
+  const lines = [
+    `Hi ${greetingName},`,
+    "",
+    `${unitLeaderName} has rejected a booking request linked to your PIC code.`,
+    "",
+    "Requester details:",
+    ...getRequesterDetailsLines(booking),
+    "",
+    ...getBookingDetailsLines(booking),
+    "",
+    `Rejection reason: ${reason}`,
+    "",
+    "AD Booking System",
+  ];
+
+  return {
+    to: pic.email,
+    subject,
+    text: lines.join("\n"),
+    html: [
+      `<p>Hi ${escapeHtml(greetingName)},</p>`,
+      `<p>${escapeHtml(unitLeaderName)} has rejected a booking request linked to your PIC code.</p>`,
+      "<p><strong>Requester details:</strong></p>",
+      "<ul>",
+      ...getRequesterDetailsHtml(booking),
+      "</ul>",
+      "<ul>",
+      ...getBookingDetailsHtml(booking),
+      `<li><strong>Rejection reason:</strong> ${escapeHtml(reason)}</li>`,
+      "</ul>",
+      "<p>AD Booking System</p>",
+    ].join(""),
+  };
+}
+
+function buildPpmuDecisionRecipientEmail({
+  booking,
+  recipient,
+  recipientRole,
+  ppmu,
+  processRecord,
+}) {
+  const greetingName = getRecipientName(recipient);
+  const ppmuName = ppmu.username || ppmu.email || "PPMU";
+  const isApproved = processRecord.decision === "approved";
+  const decision = isApproved ? "approved" : "rejected";
+  const reason = processRecord.remarks || processRecord.rejection_reason || "";
+  const subject = `Booking request ${decision} by PPMU`;
+  const roleMessage = {
+    student: isApproved
+      ? "Your booking request has been approved by PPMU. The quotation is attached."
+      : "Your booking request has been rejected by PPMU.",
+    lecturer: isApproved
+      ? "A booking request linked to you has been approved by PPMU. The quotation is attached."
+      : "A booking request linked to you has been rejected by PPMU.",
+    pic: isApproved
+      ? "A booking request linked to your PIC code has been approved by PPMU."
+      : "A booking request linked to your PIC code has been rejected by PPMU.",
+    unit_leader: isApproved
+      ? "A booking request you recommended has been approved by PPMU."
+      : "A booking request you recommended has been rejected by PPMU.",
+  }[recipientRole] || `A booking request has been ${decision} by PPMU.`;
+  const lines = [
+    `Hi ${greetingName},`,
+    "",
+    roleMessage,
+    "",
+    "PPMU details:",
+    `Name: ${ppmuName}`,
+    `Email: ${ppmu.email || "-"}`,
+    "",
+    "Requester details:",
+    ...getRequesterDetailsLines(booking),
+    "",
+    "Lecturer details:",
+    ...getLecturerDetailsLines(booking),
+    "",
+    ...getBookingDetailsLines(booking),
+  ];
+
+  if (!isApproved && reason) {
+    lines.push("", `Rejection reason: ${reason}`);
+  }
+
+  lines.push("", "AD Booking System");
+
+  return {
+    to: recipient.email,
+    subject,
+    text: lines.join("\n"),
+    html: [
+      `<p>Hi ${escapeHtml(greetingName)},</p>`,
+      `<p>${escapeHtml(roleMessage)}</p>`,
+      "<p><strong>PPMU details:</strong></p>",
+      "<ul>",
+      `<li><strong>Name:</strong> ${escapeHtml(ppmuName)}</li>`,
+      `<li><strong>Email:</strong> ${escapeHtml(ppmu.email || "-")}</li>`,
+      "</ul>",
+      "<p><strong>Requester details:</strong></p>",
+      "<ul>",
+      ...getRequesterDetailsHtml(booking),
+      "</ul>",
+      "<p><strong>Lecturer details:</strong></p>",
+      "<ul>",
+      ...getLecturerDetailsHtml(booking),
+      "</ul>",
+      "<ul>",
+      ...getBookingDetailsHtml(booking),
+      !isApproved && reason
+        ? `<li><strong>Rejection reason:</strong> ${escapeHtml(reason)}</li>`
+        : "",
+      "</ul>",
+      "<p>AD Booking System</p>",
+    ].join(""),
+  };
+}
+
 function buildPpmuApprovalPicEmail({ booking, pic, ppmu }) {
   const greetingName = pic.username || pic.email || "there";
   const ppmuName = ppmu.username || ppmu.email || "PPMU";
@@ -198,6 +397,55 @@ function buildPpmuApprovalPicEmail({ booking, pic, ppmu }) {
       "<ul>",
       ...getBookingDetailsHtml(booking),
       "</ul>",
+      "<p>AD Booking System</p>",
+    ].join(""),
+  };
+}
+
+function buildSubmittedPicEmail({ booking, requester, pic }) {
+  const greetingName = pic.username || pic.name || pic.email || "there";
+  const requesterName = requester.username || requester.email || "-";
+  const subject = "Booking request submitted using your PIC code";
+  const lines = [
+    `Hi ${greetingName},`,
+    "",
+    "A booking request has been submitted using your PIC code.",
+    "",
+    "Requester details:",
+    `Name: ${requesterName}`,
+    `Email: ${requester.email || "-"}`,
+    "",
+    "Request details:",
+    ...getRequesterDetailsLines(booking),
+    ...getBookingDetailsLines(booking),
+    `Additional Details: ${booking.request_details || "-"}`,
+    "",
+    "You will receive another notification after PPMU approval.",
+    "",
+    "AD Booking System",
+  ];
+
+  return {
+    to: pic.email,
+    subject,
+    text: lines.join("\n"),
+    html: [
+      `<p>Hi ${escapeHtml(greetingName)},</p>`,
+      "<p>A booking request has been submitted using your PIC code.</p>",
+      "<p><strong>Requester details:</strong></p>",
+      "<ul>",
+      `<li><strong>Name:</strong> ${escapeHtml(requesterName)}</li>`,
+      `<li><strong>Email:</strong> ${escapeHtml(requester.email || "-")}</li>`,
+      "</ul>",
+      "<p><strong>Request details:</strong></p>",
+      "<ul>",
+      ...getRequesterDetailsHtml(booking),
+      ...getBookingDetailsHtml(booking),
+      `<li><strong>Additional Details:</strong> ${escapeHtml(
+        booking.request_details || "-",
+      )}</li>`,
+      "</ul>",
+      "<p>You will receive another notification after PPMU approval.</p>",
       "<p>AD Booking System</p>",
     ].join(""),
   };
@@ -320,6 +568,25 @@ async function sendEmailWithSmtp(email) {
   };
 }
 
+async function sendOptionalEmail(email, logLabel) {
+  if (!email?.to || (Array.isArray(email.to) && email.to.length === 0)) {
+    return { sent: false, skipped: true, reason: "No recipient email." };
+  }
+
+  try {
+    const result = await sendEmailWithSmtp(email);
+
+    if (result.skipped) {
+      return { sent: false, skipped: true, reason: result.reason };
+    }
+
+    return { sent: true };
+  } catch (smtpError) {
+    console.error(`${logLabel} failed:`, smtpError);
+    return { sent: false, error: smtpError.message };
+  }
+}
+
 export async function sendBookingDecisionEmail({
   admin,
   type,
@@ -364,6 +631,60 @@ export async function sendBookingDecisionEmail({
   }
 }
 
+export async function sendUnitLeaderRecommendationPpmuEmail({
+  booking,
+  unitLeader,
+  ppmuUsers,
+}) {
+  return sendOptionalEmail(
+    buildUnitLeaderPpmuEmail({ booking, unitLeader, ppmuUsers }),
+    "Unit leader PPMU recommendation email",
+  );
+}
+
+export async function sendUnitLeaderRejectionPicEmail({
+  booking,
+  pic,
+  unitLeader,
+  processRecord,
+}) {
+  if (!pic?.email) {
+    return { sent: false, skipped: true, reason: "No PIC email for this booking." };
+  }
+
+  return sendOptionalEmail(
+    buildUnitLeaderPicEmail({ booking, pic, unitLeader, processRecord }),
+    "Unit leader PIC rejection email",
+  );
+}
+
+export async function sendPpmuDecisionRecipientEmail({
+  booking,
+  recipient,
+  recipientRole,
+  ppmu,
+  processRecord,
+  attachments = [],
+}) {
+  if (!recipient?.email) {
+    return { sent: false, skipped: true, reason: "No recipient email." };
+  }
+
+  return sendOptionalEmail(
+    {
+      ...buildPpmuDecisionRecipientEmail({
+        booking,
+        recipient,
+        recipientRole,
+        ppmu,
+        processRecord,
+      }),
+      attachments,
+    },
+    `PPMU ${recipientRole} decision email`,
+  );
+}
+
 export async function sendBookingSubmittedEmail({ booking, requester, attachments = [] }) {
   if (!requester?.email) {
     return {
@@ -387,6 +708,30 @@ export async function sendBookingSubmittedEmail({ booking, requester, attachment
     return { sent: true };
   } catch (smtpError) {
     console.error("Booking submitted email failed:", smtpError);
+    return { sent: false, error: smtpError.message };
+  }
+}
+
+export async function sendBookingSubmittedPicEmail({ booking, requester, pic }) {
+  if (!pic?.email) {
+    return {
+      sent: false,
+      error: "PIC email not found for notification.",
+    };
+  }
+
+  const email = buildSubmittedPicEmail({ booking, requester, pic });
+
+  try {
+    const result = await sendEmailWithSmtp(email);
+
+    if (result.skipped) {
+      return { sent: false, skipped: true, reason: result.reason };
+    }
+
+    return { sent: true };
+  } catch (smtpError) {
+    console.error("Booking submitted PIC email failed:", smtpError);
     return { sent: false, error: smtpError.message };
   }
 }

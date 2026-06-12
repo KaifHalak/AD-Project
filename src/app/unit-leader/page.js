@@ -27,6 +27,10 @@ function formatStudyLevel(value) {
   return String(value).replaceAll("_", " ").replace(/^\w/, (char) => char.toUpperCase());
 }
 
+function formatUnitLeaderStatus(status) {
+  return status === "Approved" ? "Recommended" : status;
+}
+
 export default function UnitLeaderApprovalPage() {
   const [data, setData] = useState([]);
   const router = useRouter();
@@ -49,6 +53,8 @@ export default function UnitLeaderApprovalPage() {
     const matchesSearch =
       item.user_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.lect_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.lect_faculty?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.lect_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       String(item.id).includes(searchTerm);
 
     const matchesStatus =
@@ -144,10 +150,10 @@ export default function UnitLeaderApprovalPage() {
     <div className="bg-[#f4efe9] min-h-screen">
       <div className="text-center py-8">
         <h1 className="text-4xl font-bold text-[#b0125b]">
-          Unit Leader Approval Dashboard
+          Unit Leader Recommendation Dashboard
         </h1>
         <p className="text-gray-500 mt-2">
-          Review booking requests before they move to PPMU final approval.
+          Review booking requests before they move to PPMU final decision.
         </p>
       </div>
 
@@ -160,7 +166,7 @@ export default function UnitLeaderApprovalPage() {
             <p className="text-sm text-gray-600 mt-2">
               Pending requests appear first. Use search and filters to narrow
               the list, open View Details to inspect the booking, then submit
-              the unit leader decision.
+              the unit leader recommendation.
             </p>
           </div>
 
@@ -176,7 +182,7 @@ export default function UnitLeaderApprovalPage() {
               color="text-yellow-600"
             />
             <Card
-              title="Approved"
+              title="Recommended"
               value={stats.approved}
               color="text-green-600"
             />
@@ -210,7 +216,7 @@ export default function UnitLeaderApprovalPage() {
               <option value="All">All Status</option>
               <option value="Pending">Pending</option>
               <option value="Partially Reviewed">Partially Reviewed</option>
-              <option value="Approved">Approved</option>
+              <option value="Approved">Recommended</option>
               <option value="Rejected">Rejected</option>
             </select>
 
@@ -279,7 +285,7 @@ export default function UnitLeaderApprovalPage() {
                       onSort={handleSort}
                     />
                     <SortableHeader
-                      label="UNIT LEADER STATUS"
+                      label="UNIT LEADER RECOMMENDATION"
                       column="status"
                       sortConfig={sortConfig}
                       onSort={handleSort}
@@ -301,6 +307,9 @@ export default function UnitLeaderApprovalPage() {
                         <div className="font-medium">{item.lect_name || "-"}</div>
                         <div className="text-xs text-gray-500">
                           {item.lect_email || "-"}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {item.lect_faculty || "-"} | ID {item.lect_id || "-"}
                         </div>
                       </td>
                       <td className="p-4">{formatDateTime(item.created_at)}</td>
@@ -403,7 +412,7 @@ function StatusBadge({ status }) {
     <span
       className={`px-5 py-1.5 rounded-full text-xs font-medium inline-flex items-center justify-center whitespace-nowrap min-w-[140px] ${map[status]}`}
     >
-      {status}
+      {formatUnitLeaderStatus(status)}
     </span>
   );
 }

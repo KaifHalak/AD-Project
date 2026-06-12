@@ -31,6 +31,11 @@ function formatDecision(process) {
   return process.decision === "approved" ? "Approved" : "Rejected";
 }
 
+function formatUnitLeaderDecision(process) {
+  if (!process) return "Pending";
+  return process.decision === "approved" ? "Recommended" : "Rejected";
+}
+
 function formatPpmuDecision(item) {
   if (item.unit_leader_process?.decision === "rejected" && !item.ppmu_process) {
     return "Rejected (by Unit Leader)";
@@ -320,6 +325,8 @@ export default function PpmuRequestDetailPage() {
             <Info label="Lecturer Name" value={data.lect_name || "-"} />
             <Info label="Lecturer Email" value={data.lect_email || "-"} />
             <Info label="Lecturer Contact" value={data.lect_contact || "-"} />
+            <Info label="Faculty" value={data.lect_faculty || "-"} />
+            <Info label="ID Number" value={data.lect_id || "-"} />
             <Info label="VOT Number" value={data.vot_number || "-"} />
           </DetailSection>
 
@@ -471,8 +478,8 @@ export default function PpmuRequestDetailPage() {
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <ReviewCard
-                    title="Unit Leader Review"
-                    decision={formatDecision(item.unit_leader_process)}
+                    title="Unit Leader Recommendation"
+                    decision={formatUnitLeaderDecision(item.unit_leader_process)}
                     process={item.unit_leader_process}
                   />
                   <ReviewCard

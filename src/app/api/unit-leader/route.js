@@ -12,14 +12,14 @@ async function requireUnitLeaderRequester(request) {
     return {
       error: {
         status: 401,
-        message: "Please log in before viewing unit leader approvals.",
+        message: "Please log in before viewing unit leader recommendations.",
       },
     };
   }
 
   const { requester, error } = await getRequesterProfile(
     accessToken,
-    "Please log in before viewing unit leader approvals.",
+    "Please log in before viewing unit leader recommendations.",
   );
 
   if (error) return { error };
@@ -138,6 +138,8 @@ export async function GET(request) {
         lect_name: booking.lect_name || "",
         lect_email: booking.lect_email || "",
         lect_contact: booking.lect_contact || "",
+        lect_faculty: booking.lect_faculty || "",
+        lect_id: booking.lect_id || "",
         vot_number: booking.vot_number || "",
         total_price: booking.final_total_price ?? null,
         created_at: booking.created_at || null,

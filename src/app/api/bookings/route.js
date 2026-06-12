@@ -5,7 +5,10 @@ import {
   getRequesterProfile,
   verifyPicToken,
 } from "@/lib/bookingTokenAuth";
-import { sendBookingSubmittedEmail } from "@/lib/bookingDecisionEmail";
+import {
+  sendBookingSubmittedEmail,
+  sendBookingSubmittedPicEmail,
+} from "@/lib/bookingDecisionEmail";
 import {
   createBookingReceiptPdfBuffer,
 } from "@/lib/bookingReceiptPdf";
@@ -268,10 +271,20 @@ export async function POST(request) {
     const lectName = String(body?.lectName || body?.lect_name || "").trim();
     const lectEmail = String(body?.lectEmail || body?.lect_email || "").trim();
     const lectContact = String(body?.lectContact || body?.lect_contact || "").trim();
+    const lectFaculty = String(body?.lectFaculty || body?.lect_faculty || "").trim();
+    const lectId = String(body?.lectId || body?.lect_id || "").trim();
     const votNumber = String(body?.votNumber || "").trim();
     const requestDetails = String(body?.requestDetails || "").trim();
     const picCode = String(body?.picCode || "").trim().toUpperCase();
-    const allowedStudyLevels = new Set(["diploma", "undergraduate", "postgraduate"]);
+    const allowedStudyLevels = new Set([
+      "UTM STUDENT(UNDERGRADUATE)",
+      "UTM STUDENT(POSTGRADUATE)",
+      "UTM STAFF",
+      "IPTA/IPTS STUDENT",
+      "INDUSTRY",
+      "INTERN",
+      "FINAL YEAR PROJECT (FYP)",
+    ]);
 
     if (items.length === 0) {
       return NextResponse.json(
@@ -294,9 +307,9 @@ export async function POST(request) {
       );
     }
 
-    if (!lectName || !lectEmail || !lectContact) {
+    if (!lectName || !lectEmail || !lectContact || !lectFaculty || !lectId) {
       return NextResponse.json(
-        { error: "Please enter lecturer name, email, and contact number." },
+        { error: "Please enter lecturer name, email, contact number, faculty, and ID number." },
         { status: 400 },
       );
     }
@@ -377,6 +390,13 @@ export async function POST(request) {
         );
       }
 
+      if (equipment.status === "unavailable") {
+        return NextResponse.json(
+          { error: `${equipment.name || equipment.id} is unavailable.` },
+          { status: 409 },
+        );
+      }
+
       const preparedItem = {
         ...item,
         labId: equipment.lab_id,
@@ -442,6 +462,8 @@ export async function POST(request) {
         lect_name: lectName,
         lect_email: lectEmail,
         lect_contact: lectContact,
+        lect_faculty: lectFaculty,
+        lect_id: lectId,
         vot_number: votNumber,
         final_total_price: Number(finalTotalPrice.toFixed(2)),
         request_details: requestDetails,
@@ -522,22 +544,33 @@ export async function POST(request) {
       console.error("Error generating booking receipt PDF attachment:", receiptError);
     }
 
+    const notificationBooking = {
+      ...parentBooking,
+      booking_type: "equipment",
+      item_id: parentBooking.id,
+      item_name:
+        preparedItems.length === 1
+          ? preparedItems[0].equipmentName
+          : `${preparedItems.length} equipment items`,
+      booking_date: firstDate,
+      start_time: preparedItems[0]?.startTime || "",
+      end_time: preparedItems[0]?.endTime || "",
+      user_name: requester.username || "",
+      user_email: requester.email || "",
+    };
     const notification = await sendBookingSubmittedEmail({
-      booking: {
-        id: parentBooking.id,
-        booking_type: "equipment",
-        item_id: parentBooking.id,
-        item_name:
-          preparedItems.length === 1
-            ? preparedItems[0].equipmentName
-            : `${preparedItems.length} equipment items`,
-        booking_date: firstDate,
-        start_time: preparedItems[0]?.startTime || "",
-        end_time: preparedItems[0]?.endTime || "",
-      },
+      booking: notificationBooking,
       requester,
       attachments: submittedEmailAttachments,
     });
+    const picNotification =
+      requester.role === "pic"
+        ? { sent: false, skipped: true, reason: "Requester is the PIC." }
+        : await sendBookingSubmittedPicEmail({
+            booking: notificationBooking,
+            requester,
+            pic: tokenVerification.pic,
+          });
 
     return NextResponse.json(
       {
@@ -545,6 +578,7 @@ export async function POST(request) {
         booking: parentBooking,
         equipmentBookings: equipmentBookings || [],
         notification,
+        picNotification,
       },
       { status: 201 },
     );

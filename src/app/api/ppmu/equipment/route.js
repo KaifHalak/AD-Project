@@ -8,6 +8,7 @@ import {
 const EQUIPMENT_STATUS = {
   AVAILABLE: "available",
   MAINTENANCE: "maintenance",
+  UNAVAILABLE: "unavailable",
 };
 
 async function requirePpmuRequester(request) {
@@ -44,6 +45,10 @@ function normalizeEquipmentStatus(value) {
 
   if (status === EQUIPMENT_STATUS.AVAILABLE) {
     return EQUIPMENT_STATUS.AVAILABLE;
+  }
+
+  if (status === EQUIPMENT_STATUS.UNAVAILABLE) {
+    return EQUIPMENT_STATUS.UNAVAILABLE;
   }
 
   return "";
@@ -127,7 +132,7 @@ export async function PATCH(request) {
 
     if (!status) {
       return NextResponse.json(
-        { error: "Status must be available or maintenance." },
+        { error: "Status must be available, maintenance, or unavailable." },
         { status: 400 },
       );
     }
