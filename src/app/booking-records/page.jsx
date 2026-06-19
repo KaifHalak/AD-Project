@@ -7,7 +7,7 @@ import { Calendar, Clock, FileText, PackageCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Loader from "@/components/loader";
 import { getCurrentSession } from "@/lib/supabase/auth";
-import { formatRmFromUsd } from "@/lib/currency";
+import { formatRm } from "@/lib/currency";
 
 function formatDate(dateString) {
   if (!dateString) return "-";
@@ -238,9 +238,21 @@ export default function BookingRecordsPage() {
                     </p>
                   </div>
 
-                  <p className="text-sm font-semibold text-primary">
-                    {formatRmFromUsd(booking.total_price || 0)}
-                  </p>
+                  {booking.display_status_type === "processed" ? (
+                    <div className="space-y-1 text-sm">
+                      <p className="font-semibold text-text-main">
+                        Estimated:{" "}
+                        {formatRm(booking.estimated_total_price || 0)}
+                      </p>
+                      <p className="font-semibold text-primary">
+                        Final: {formatRm(booking.total_price || 0)}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm font-semibold text-primary">
+                      {formatRm(booking.total_price || 0)}
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">

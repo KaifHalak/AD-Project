@@ -75,7 +75,8 @@ async function getBookingDetail(admin, bookingId) {
     .from("equipment_bookings")
     .select("*")
     .eq("booking_id", bookingId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
 
   if (itemsError) {
     return { error: itemsError };
@@ -171,6 +172,10 @@ async function getBookingDetail(admin, bookingId) {
       display_status: getDisplayStatus(status),
       display_status_type: status,
       source_status: status,
+      estimated_total_price: enrichedItems.reduce(
+        (sum, item) => sum + Number(item.total_price || 0),
+        0,
+      ),
       total_price: booking.final_total_price,
       pic_token: booking.token || "",
     },

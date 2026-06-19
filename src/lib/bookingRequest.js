@@ -31,52 +31,78 @@ function notifyBookingRequestUpdated() {
   window.dispatchEvent(new Event("booking-request-updated"));
 }
 
-export function clearStoredBookingRequestItems() {
+function readStoredBookingRequest() {
   if (typeof window === "undefined") return;
+
+  const rawValue = window.localStorage.getItem(BOOKING_REQUEST_STORAGE_KEY);
+  return rawValue ? JSON.parse(rawValue) : null;
+}
+
+export function clearStoredBookingRequestItems(userId = "") {
+  if (typeof window === "undefined") return;
+
+  if (userId) {
+    try {
+      const parsed = readStoredBookingRequest();
+
+      if (parsed?.userId && parsed.userId !== userId) {
+        return;
+      }
+    } catch {
+      // Fall through and clear invalid storage.
+    }
+  }
 
   window.localStorage.removeItem(BOOKING_REQUEST_STORAGE_KEY);
   notifyBookingRequestUpdated();
 }
 
-export function getStoredBookingRequestItems() {
+export function getStoredBookingRequestItems(userId = "") {
   if (typeof window === "undefined") return [];
+  if (!userId) return [];
 
   try {
-    const rawValue = window.localStorage.getItem(BOOKING_REQUEST_STORAGE_KEY);
-    if (!rawValue) return [];
-
-    const parsed = JSON.parse(rawValue);
+    const parsed = readStoredBookingRequest();
+    if (!parsed) return [];
 
     if (Array.isArray(parsed)) {
-      return parsed;
+      clearStoredBookingRequestItems();
+      return [];
     }
 
     const expiresAt = Number(parsed?.expiresAt || 0);
     if (!expiresAt || expiresAt <= Date.now()) {
-      clearStoredBookingRequestItems();
+      clearStoredBookingRequestItems(userId);
+      return [];
+    }
+
+    if (parsed?.userId !== userId) {
       return [];
     }
 
     return Array.isArray(parsed?.items) ? parsed.items : [];
   } catch {
-    clearStoredBookingRequestItems();
+    clearStoredBookingRequestItems(userId);
     return [];
   }
 }
 
-export function saveStoredBookingRequestItems(items) {
+export function saveStoredBookingRequestItems(items, userId = "") {
   if (typeof window === "undefined") return;
 
   const safeItems = Array.isArray(items) ? items : [];
 
   if (safeItems.length === 0) {
-    clearStoredBookingRequestItems();
+    clearStoredBookingRequestItems(userId);
     return;
   }
+
+  if (!userId) return;
 
   window.localStorage.setItem(
     BOOKING_REQUEST_STORAGE_KEY,
     JSON.stringify({
+      userId,
       items: safeItems,
       expiresAt: Date.now() + BOOKING_REQUEST_EXPIRY_MS,
     }),

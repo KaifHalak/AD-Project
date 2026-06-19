@@ -147,7 +147,8 @@ function buildQuotationPayload({
       bookingDayCount,
       durationHours,
       pricePerHour: equipment?.price_per_hour ?? item.price_per_hour ?? 0,
-      totalPrice: item.total_price || 0,
+      estimatedTotalPrice: item.total_price || 0,
+      totalPrice: item.new_total_price ?? item.total_price ?? 0,
       purpose: item.booking_reason || booking.request_details || "",
     };
   });

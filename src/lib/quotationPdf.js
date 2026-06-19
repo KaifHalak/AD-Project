@@ -1,5 +1,5 @@
 import { jsPDF } from "jspdf";
-import { formatRmFromUsd } from "@/lib/currency";
+import { formatRm } from "@/lib/currency";
 
 export const BOOKING_AGREEMENT_TEXT =
   "I (the undersigned), hereby agree to the service offer and prices provided by PPMU UTMKL and have read and understood the Terms and Conditions set by PPMU UTMKL";
@@ -58,6 +58,10 @@ function getItemStatusLabel(item) {
 
 function getBillableItemTotal(item) {
   return getItemStatus(item) === "rejected" ? 0 : Number(item?.totalPrice || 0);
+}
+
+function getEstimatedItemTotal(item) {
+  return Number(item?.estimatedTotalPrice ?? item?.estimatedTotal ?? item?.totalPrice ?? 0);
 }
 
 function normalizeQuotationItems({
@@ -182,6 +186,7 @@ function drawQuotationItemCard({
   const itemTotalHours =
     Number(item.durationHours || 0) * Number(item.bookingDayCount || 0);
   const itemStatus = getItemStatusLabel(item);
+  const estimatedItemTotal = getEstimatedItemTotal(item);
   const itemTotal = getBillableItemTotal(item);
   const detailLines = [
     `Status: ${itemStatus}`,
@@ -190,9 +195,10 @@ function drawQuotationItemCard({
     `Date: ${formatDateRange(item.startDate, item.endDate)}`,
     `Time: ${valueOrDash(item.startTime)} - ${valueOrDash(item.endTime)}`,
     `VOT: ${valueOrDash(votNumber)}`,
-    `Price / Unit: ${formatRmFromUsd(item.pricePerHour || 0)}`,
+    `Price / Unit: ${formatRm(item.pricePerHour || 0)}`,
     `Qty: ${itemTotalHours} hr`,
-    `Total: ${formatRmFromUsd(itemTotal)}`,
+    `Estimated Total: ${formatRm(estimatedItemTotal)}`,
+    `Final Total: ${formatRm(itemTotal)}`,
   ];
   const wrappedDetailLines = doc.splitTextToSize(
     detailLines.join("\n"),
@@ -212,7 +218,7 @@ function drawQuotationItemCard({
 
   doc.setFontSize(8);
   doc.setTextColor(itemStatus === "Rejected" ? 180 : 20, itemStatus === "Rejected" ? 30 : 120, 70);
-  doc.text(formatRmFromUsd(itemTotal), pageWidth - margin - 4, y + 3, {
+  doc.text(formatRm(itemTotal), pageWidth - margin - 4, y + 3, {
     align: "right",
   });
 
@@ -303,9 +309,16 @@ export function createQuotationPdfDoc({
     (sum, item) => sum + getBillableItemTotal(item),
     0,
   );
+  const estimatedTotalAmount = quotationItems.reduce(
+    (sum, item) => sum + getEstimatedItemTotal(item),
+    0,
+  );
   const displayTotalPrice = hasItemizedQuotation
     ? totalAmount
     : Number(totalPrice || totalAmount);
+  const displayEstimatedTotalPrice = hasItemizedQuotation
+    ? estimatedTotalAmount
+    : Number(totalPrice || estimatedTotalAmount);
   const totalHours = quotationItems.reduce(
     (sum, item) =>
       sum +
@@ -360,7 +373,7 @@ export function createQuotationPdfDoc({
   doc.setFontSize(9);
   doc.text(`Quotation No: ${valueOrDash(quotationNumber)}`, margin + 4, y + 9);
   doc.text(`Date: ${dateText}`, margin + 4, y + 15);
-  doc.text(`Total Amount: ${formatRmFromUsd(displayTotalPrice)}`, pageWidth - margin - 4, y + 15, {
+  doc.text(`Final Amount: ${formatRm(displayTotalPrice)}`, pageWidth - margin - 4, y + 15, {
     align: "right",
   });
 
@@ -468,8 +481,9 @@ export function createQuotationPdfDoc({
       ["Daily Duration", durationHours ? `${durationHours} hr` : valueList(quotationItems.map((item) => `${item.durationHours || 0} hr`))],
       ["Total Duration", `${totalHours} hr`],
       ["VOT Number", votNumber],
-      ["Price Per Hour", pricePerHour ? formatRmFromUsd(pricePerHour) : valueList(quotationItems.map((item) => formatRmFromUsd(item.pricePerHour || 0)))],
-      ["Total Price", formatRmFromUsd(displayTotalPrice)],
+      ["Price Per Hour", pricePerHour ? formatRm(pricePerHour) : valueList(quotationItems.map((item) => formatRm(item.pricePerHour || 0)))],
+      ["Estimated Total Price", formatRm(displayEstimatedTotalPrice)],
+      ["Final Total Price", formatRm(displayTotalPrice)],
       ["Purpose", purpose || valueList(quotationItems.map((item) => item.purpose))],
     ],
     margin,
@@ -498,9 +512,9 @@ export function createQuotationPdfDoc({
   doc.roundedRect(margin, y - 4, tableWidth, 16, 2, 2, "FD");
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.text("TOTAL AMOUNT (RM):", margin + 4, y + 5);
+  doc.text("FINAL TOTAL AMOUNT (RM):", margin + 4, y + 5);
   doc.setTextColor(170, 0, 70);
-  doc.text(formatRmFromUsd(displayTotalPrice), pageWidth - margin - 4, y + 5, {
+  doc.text(formatRm(displayTotalPrice), pageWidth - margin - 4, y + 5, {
     align: "right",
   });
   doc.setTextColor(25, 25, 25);

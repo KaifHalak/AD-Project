@@ -16,6 +16,12 @@ import {
 
 const ALLOWED_DECISIONS = new Set(["approved", "rejected"]);
 
+function runAsyncNotification(label, task) {
+  task().catch((error) => {
+    console.error(`${label} failed:`, error);
+  });
+}
+
 function getDateString(value = new Date()) {
   return new Date(value).toISOString().slice(0, 10);
 }
@@ -69,6 +75,34 @@ function getBillableTotal(items) {
       sum + (item.resourceStatus === "rejected" ? 0 : Number(item.totalPrice || 0)),
     0,
   );
+}
+
+function getItemFinalPrice(item) {
+  if (item?.status === "rejected") return 0;
+  return Number(item?.new_total_price ?? item?.total_price ?? 0);
+}
+
+async function updateBookingFinalTotal(admin, bookingId) {
+  const { data: items, error: itemsError } = await admin
+    .from("equipment_bookings")
+    .select("status, total_price, new_total_price")
+    .eq("booking_id", bookingId);
+
+  if (itemsError) return { error: itemsError };
+
+  const finalTotalPrice = (items || []).reduce(
+    (sum, item) => sum + getItemFinalPrice(item),
+    0,
+  );
+
+  const { error: updateError } = await admin
+    .from("bookings")
+    .update({ final_total_price: finalTotalPrice, updated_at: new Date().toISOString() })
+    .eq("id", bookingId);
+
+  if (updateError) return { error: updateError };
+
+  return { finalTotalPrice };
 }
 
 function getUniqueRecipients(recipients) {
@@ -180,7 +214,8 @@ async function getRequestDetail(admin, bookingId) {
     .from("equipment_bookings")
     .select("*")
     .eq("booking_id", bookingId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
 
   if (itemsError) return { error: itemsError };
 
@@ -321,7 +356,8 @@ function buildQuotationPayloadFromRequest(requestDetail) {
       bookingDayCount,
       durationHours,
       pricePerHour: item.price_per_hour ?? 0,
-      totalPrice: item.total_price || 0,
+      estimatedTotalPrice: item.total_price || 0,
+      totalPrice: item.new_total_price ?? item.total_price ?? 0,
       purpose: item.booking_reason || requestDetail.request_details || "",
     };
   });
@@ -653,6 +689,150 @@ export async function GET(request, { params }) {
   }
 }
 
+export async function PATCH(request, { params }) {
+  try {
+    const { type, id } = await params;
+    const parsed = parseRouteParams(type, id);
+
+    if (!parsed) {
+      return NextResponse.json({ error: "Invalid PPMU request." }, { status: 400 });
+    }
+
+    const { requester, error: requesterError } = await requirePpmuRequester(request);
+
+    if (requesterError) {
+      return NextResponse.json(
+        { error: requesterError.message },
+        { status: requesterError.status },
+      );
+    }
+
+    const body = await request.json();
+    const itemId = Number(body?.itemId);
+    const newTotalPrice = Number(body?.newTotalPrice);
+
+    if (!Number.isInteger(itemId) || itemId <= 0) {
+      return NextResponse.json({ error: "Invalid equipment item." }, { status: 400 });
+    }
+
+    if (!Number.isInteger(newTotalPrice) || newTotalPrice < 0) {
+      return NextResponse.json(
+        { error: "Final price must be a whole number of RM 0 or more." },
+        { status: 400 },
+      );
+    }
+
+    const admin = getSupabaseAdminClient();
+    const { data: item, error: itemError } = await admin
+      .from("equipment_bookings")
+      .select("id, booking_id, status")
+      .eq("id", itemId)
+      .eq("booking_id", parsed.id)
+      .maybeSingle();
+
+    if (itemError || !item) {
+      return NextResponse.json({ error: "Equipment item not found." }, { status: 404 });
+    }
+
+    if (item.status === "approved" || item.status === "rejected") {
+      return NextResponse.json(
+        { error: "Final price cannot be changed after the PPMU decision." },
+        { status: 409 },
+      );
+    }
+
+    const { data: unitLeaderProcess, error: unitLeaderError } = await admin
+      .from("booking_process")
+      .select("id")
+      .eq("booking_type", "equipment")
+      .eq("booking_id", itemId)
+      .eq("reviewer_role", "unit_leader")
+      .eq("decision", "approved")
+      .maybeSingle();
+
+    if (unitLeaderError) {
+      console.error("Error checking unit leader approval:", unitLeaderError);
+      return NextResponse.json(
+        { error: "Could not verify unit leader recommendation." },
+        { status: 500 },
+      );
+    }
+
+    if (!unitLeaderProcess) {
+      return NextResponse.json(
+        { error: "Only unit leader recommended items can have a final price." },
+        { status: 400 },
+      );
+    }
+
+    const { data: existingProcess, error: existingProcessError } = await admin
+      .from("booking_process")
+      .select("id")
+      .eq("booking_type", "equipment")
+      .eq("booking_id", itemId)
+      .eq("reviewer_role", "ppmu")
+      .maybeSingle();
+
+    if (existingProcessError) {
+      console.error("Error checking existing PPMU decision:", existingProcessError);
+      return NextResponse.json(
+        { error: "Could not verify existing decision." },
+        { status: 500 },
+      );
+    }
+
+    if (existingProcess) {
+      return NextResponse.json(
+        { error: "Final price cannot be changed after the PPMU decision." },
+        { status: 409 },
+      );
+    }
+
+    const { data: updatedItem, error: updateError } = await admin
+      .from("equipment_bookings")
+      .update({ new_total_price: newTotalPrice })
+      .eq("id", itemId)
+      .select("*")
+      .maybeSingle();
+
+    if (updateError) {
+      console.error("Error updating final item price:", updateError);
+      return NextResponse.json(
+        { error: "Could not update final item price." },
+        { status: 500 },
+      );
+    }
+
+    const { finalTotalPrice, error: totalError } = await updateBookingFinalTotal(
+      admin,
+      parsed.id,
+    );
+
+    if (totalError) {
+      console.error("Error updating final booking total:", totalError);
+      return NextResponse.json(
+        { error: "Item price updated, but booking total could not be updated." },
+        { status: 500 },
+      );
+    }
+
+    return NextResponse.json(
+      {
+        item: updatedItem,
+        final_total_price: finalTotalPrice,
+        requester_id: requester.id,
+      },
+      { status: 200 },
+    );
+  } catch (error) {
+    console.error("Error in PATCH /api/ppmu/[type]/[id]:", error);
+    return NextResponse.json(
+      { error: "Something went wrong while updating the final price." },
+      { status: 500 },
+    );
+  }
+}
+
 export async function POST(request, { params }) {
   try {
     const { type, id } = await params;
@@ -691,7 +871,7 @@ export async function POST(request, { params }) {
     const admin = getSupabaseAdminClient();
     const { data: item, error: itemError } = await admin
       .from("equipment_bookings")
-      .select("id, booking_id, status")
+      .select("id, booking_id, status, total_price, new_total_price")
       .eq("id", itemId)
       .eq("booking_id", parsed.id)
       .maybeSingle();
@@ -769,9 +949,19 @@ export async function POST(request, { params }) {
       );
     }
 
+    const itemUpdate = { status: decision };
+
+    if (decision === "approved" && item.new_total_price === null) {
+      itemUpdate.new_total_price = Math.round(Number(item.total_price || 0));
+    }
+
+    if (decision === "rejected") {
+      itemUpdate.new_total_price = 0;
+    }
+
     const { error: statusError } = await admin
       .from("equipment_bookings")
-      .update({ status: decision })
+      .update(itemUpdate)
       .eq("id", itemId);
 
     if (statusError) {
@@ -783,58 +973,56 @@ export async function POST(request, { params }) {
     }
 
     await refreshParentStatus(admin, parsed.id);
-    const { request: updatedRequestDetail, error: updatedDetailError } =
-      await getRequestDetail(admin, parsed.id);
-    let approvalNotifications = null;
+    const { error: totalError } = await updateBookingFinalTotal(admin, parsed.id);
 
-    if (updatedDetailError) {
-      console.error("Error loading request after PPMU decision:", updatedDetailError);
-    } else if (updatedRequestDetail) {
-      try {
-        if (decision === "approved") {
-          approvalNotifications = await sendProcessedApprovalEmails({
-            admin,
-            requestDetail: updatedRequestDetail,
-            processRecord,
-            ppmu: requester,
-          });
-        } else {
-          approvalNotifications = {
-            rejection: await sendPpmuRejectionEmails({
-              requestDetail: updatedRequestDetail,
-              processRecord,
-              ppmu: requester,
-            }),
-            processedApproval: await sendProcessedApprovalEmails({
-              admin,
-              requestDetail: updatedRequestDetail,
-              processRecord: {
-                ...processRecord,
-                decision: "approved",
-                remarks: "Approved items are listed in the attached quotation.",
-                rejection_reason: null,
-              },
-              ppmu: requester,
-            }),
-          };
-        }
-      } catch (notificationError) {
-        console.error("Error sending PPMU approval notifications:", notificationError);
-        approvalNotifications = {
-          student: { sent: false, error: notificationError.message },
-          lecturer: { sent: false, error: notificationError.message },
-          pic: { sent: false, error: notificationError.message },
-          unitLeader: { sent: false, error: notificationError.message },
-        };
-      }
+    if (totalError) {
+      console.error("Error updating final booking total:", totalError);
     }
+
+    runAsyncNotification("PPMU notifications", async () => {
+      const { request: updatedRequestDetail, error: updatedDetailError } =
+        await getRequestDetail(admin, parsed.id);
+
+      if (updatedDetailError) {
+        console.error("Error loading request after PPMU decision:", updatedDetailError);
+        return;
+      }
+
+      if (!updatedRequestDetail) return;
+
+      if (decision === "approved") {
+        await sendProcessedApprovalEmails({
+          admin,
+          requestDetail: updatedRequestDetail,
+          processRecord,
+          ppmu: requester,
+        });
+      } else {
+        await sendPpmuRejectionEmails({
+          requestDetail: updatedRequestDetail,
+          processRecord,
+          ppmu: requester,
+        });
+        await sendProcessedApprovalEmails({
+          admin,
+          requestDetail: updatedRequestDetail,
+          processRecord: {
+            ...processRecord,
+            decision: "approved",
+            remarks: "Approved items are listed in the attached quotation.",
+            rejection_reason: null,
+          },
+          ppmu: requester,
+        });
+      }
+    });
 
     return NextResponse.json(
       {
         message:
           decision === "approved" ? "Equipment item approved." : "Equipment item rejected.",
         process: processRecord,
-        notifications: approvalNotifications,
+        notifications: { queued: true },
       },
       { status: 201 },
     );

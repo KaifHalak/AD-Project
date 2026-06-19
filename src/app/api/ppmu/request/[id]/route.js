@@ -1,5 +1,6 @@
 import {
   GET as getPpmuRequest,
+  PATCH as patchPpmuRequest,
   POST as postPpmuRequest,
 } from "../../[type]/[id]/route";
 
@@ -14,4 +15,8 @@ export async function GET(request, { params }) {
 
 export async function POST(request, { params }) {
   return postPpmuRequest(request, { params: withRequestType(params) });
+}
+
+export async function PATCH(request, { params }) {
+  return patchPpmuRequest(request, { params: withRequestType(params) });
 }

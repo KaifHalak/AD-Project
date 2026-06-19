@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sendPicTokenAssignedEmail } from "@/lib/bookingDecisionEmail";
 import { getSupabaseServerClient } from "@/lib/supabase/supabaseServer";
 
 function getAccessTokenFromHeader(request) {
@@ -28,7 +29,7 @@ async function getRequesterProfile(accessToken) {
   const scopedClient = getSupabaseServerClient(accessToken);
   const { data: requester, error: requesterError } = await scopedClient
     .from("users")
-    .select("id, email, role")
+    .select("id, username, email, role")
     .eq("email", authData.user.email)
     .maybeSingle();
 
@@ -165,10 +166,27 @@ export async function POST(request) {
       );
     }
 
+    const { data: assignedUser, error: assignedUserError } = await scopedClient
+      .from("users")
+      .select("id, username, email")
+      .eq("id", assignedToUserId)
+      .maybeSingle();
+
+    if (assignedUserError) {
+      console.error("Error loading assigned user for token email:", assignedUserError);
+    }
+
+    const notification = await sendPicTokenAssignedEmail({
+      tokenRecord: insertedRecord,
+      recipient: assignedUser,
+      pic: requester,
+    });
+
     return NextResponse.json(
       {
         message: "Token assigned successfully.",
         token: insertedRecord,
+        notification,
       },
       { status: 200 },
     );

@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BookingInstructions } from "@/components/booking-instructions";
 import { getCurrentSession } from "@/lib/supabase/auth";
-import { formatRmFromUsd } from "@/lib/currency";
+import { formatRm } from "@/lib/currency";
 import { downloadBookingReceiptPdf } from "@/lib/bookingReceiptPdf";
 import {
   getStoredBookingRequestItems,
@@ -47,6 +47,7 @@ export default function CompleteBookingPage() {
   const [isLoadingPicDetails, setIsLoadingPicDetails] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [currentUserId, setCurrentUserId] = useState("");
   const [userDetails, setUserDetails] = useState({
     username: "",
     role: "",
@@ -82,6 +83,9 @@ export default function CompleteBookingPage() {
         return;
       }
 
+      const userId = sessionData.session.user?.id || "";
+      setCurrentUserId(userId);
+
       const response = await fetch("/api/users/me", {
         headers: {
           Authorization: `Bearer ${sessionData.session.access_token}`,
@@ -95,7 +99,7 @@ export default function CompleteBookingPage() {
         setUserDetails(data.user || { username: "", role: "", email: "" });
       }
 
-      setItems(getStoredBookingRequestItems());
+      setItems(getStoredBookingRequestItems(userId));
     }
 
     init();
@@ -184,7 +188,7 @@ export default function CompleteBookingPage() {
       item.clientId === clientId ? { ...item, bookingReason } : item,
     );
     setItems(nextItems);
-    saveStoredBookingRequestItems(nextItems);
+    saveStoredBookingRequestItems(nextItems, currentUserId);
     setSelectedItem((current) =>
       current?.clientId === clientId ? { ...current, bookingReason } : current,
     );
@@ -193,7 +197,7 @@ export default function CompleteBookingPage() {
   function removeItem(clientId) {
     const nextItems = items.filter((item) => item.clientId !== clientId);
     setItems(nextItems);
-    saveStoredBookingRequestItems(nextItems);
+    saveStoredBookingRequestItems(nextItems, currentUserId);
     setSelectedItem(null);
   }
 
@@ -212,6 +216,7 @@ export default function CompleteBookingPage() {
     try {
       const { data: sessionData } = await getCurrentSession();
       const token = sessionData?.session?.access_token;
+      const userId = sessionData?.session?.user?.id || currentUserId;
 
       if (!token) {
         router.replace("/");
@@ -256,7 +261,7 @@ export default function CompleteBookingPage() {
         }
       }
 
-      saveStoredBookingRequestItems([]);
+      saveStoredBookingRequestItems([], userId);
       setItems([]);
       setSuccessMessage(data.message || "Booking request submitted.");
       setTimeout(() => router.push("/booking-records"), 900);
@@ -365,7 +370,7 @@ export default function CompleteBookingPage() {
                         Est. Price
                       </p>
                       <p className="mt-1 text-2xl font-semibold text-primary">
-                        {formatRmFromUsd(item.estimatedTotal || 0)}
+                        {formatRm(item.estimatedTotal || 0)}
                       </p>
                       <p className="mt-2 text-xs leading-snug text-text-muted">
                         {ESTIMATED_PRICE_NOTE}
@@ -403,7 +408,7 @@ export default function CompleteBookingPage() {
           <div className="mt-4 rounded-xl border border-border-light bg-background-main p-4">
             <p className="text-sm text-text-muted">Estimated total</p>
             <p className="mt-1 text-3xl font-semibold text-primary">
-              {formatRmFromUsd(total)}
+              {formatRm(total)}
             </p>
             <p className="mt-2 text-xs leading-snug text-text-muted">
               {ESTIMATED_PRICE_NOTE}
@@ -621,7 +626,7 @@ export default function CompleteBookingPage() {
               />
               <Detail
                 label="Estimated Price"
-                value={formatRmFromUsd(selectedItem.estimatedTotal || 0)}
+                value={formatRm(selectedItem.estimatedTotal || 0)}
                 note={ESTIMATED_PRICE_NOTE}
               />
               <Detail
@@ -638,7 +643,7 @@ export default function CompleteBookingPage() {
               />
               <Detail
                 label="Price Per Hour"
-                value={formatRmFromUsd(selectedItem.pricePerHour || 0)}
+                value={formatRm(selectedItem.pricePerHour || 0)}
               />
             </div>
 

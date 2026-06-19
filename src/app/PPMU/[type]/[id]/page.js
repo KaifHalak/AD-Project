@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, UserRound } from "lucide-react";
 import { getCurrentSession } from "@/lib/supabase/auth";
-import { formatRmFromUsd } from "@/lib/currency";
+import { formatRm } from "@/lib/currency";
+import { deriveOverallStatus, getDisplayStatus } from "@/lib/bookingRequest";
 
 function formatDate(dateString) {
   if (!dateString) return "-";
@@ -97,6 +98,18 @@ function reviewDecisionClass(process) {
   }
 }
 
+function getEffectiveFinalPrice(item) {
+  if (item?.status === "rejected") return 0;
+  return Number(item?.new_total_price ?? item?.total_price ?? 0);
+}
+
+function getEffectiveFinalTotal(items) {
+  return (items || []).reduce(
+    (sum, item) => sum + getEffectiveFinalPrice(item),
+    0,
+  );
+}
+
 async function readResponseJson(response) {
   const contentType = response.headers.get("content-type") || "";
 
@@ -116,6 +129,11 @@ export default function PpmuRequestDetailPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [bulkRemarks, setBulkRemarks] = useState("");
   const [remarksByItem, setRemarksByItem] = useState({});
+  const [pendingApproval, setPendingApproval] = useState(null);
+  const [pendingRejection, setPendingRejection] = useState(null);
+  const [editingPriceItemId, setEditingPriceItemId] = useState(null);
+  const [priceByItem, setPriceByItem] = useState({});
+  const [savingPriceItemId, setSavingPriceItemId] = useState(null);
 
   const getAccessToken = useCallback(async () => {
     const { data: sessionData } = await getCurrentSession();
@@ -146,6 +164,7 @@ export default function PpmuRequestDetailPage() {
         return;
       }
 
+      console.dir(responseData.request);
       setData(responseData.request);
     } catch (error) {
       console.error(error);
@@ -158,6 +177,124 @@ export default function PpmuRequestDetailPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  function updateItemDecision(itemId, decision, processRecord) {
+    setData((current) => {
+      if (!current) return current;
+
+      const nextItems = (current.items || []).map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              status: decision,
+              new_total_price:
+                decision === "approved"
+                  ? (item.new_total_price ?? item.total_price ?? 0)
+                  : 0,
+              ppmu_process: processRecord,
+              can_review: false,
+            }
+          : item,
+      );
+      const nextStatus = deriveOverallStatus(nextItems);
+
+      return {
+        ...current,
+        items: nextItems,
+        display_status: getDisplayStatus(nextStatus),
+        display_status_type: nextStatus,
+        total_price: getEffectiveFinalTotal(nextItems),
+      };
+    });
+  }
+
+  function startEditingPrice(item) {
+    console.dir(item);
+    setEditingPriceItemId(item.id);
+    setPriceByItem((current) => ({
+      ...current,
+      [item.id]: String(item.new_total_price ?? item.total_price ?? 0),
+    }));
+  }
+
+  function cancelEditingPrice() {
+    setEditingPriceItemId(null);
+  }
+
+  async function saveFinalPrice(item) {
+    const value = Number(priceByItem[item.id]);
+
+    if (!Number.isInteger(value) || value < 0) {
+      setErrorMessage("Final price must be a whole number of RM 0 or more.");
+      return;
+    }
+
+    setSavingPriceItemId(item.id);
+    setErrorMessage("");
+
+    try {
+      const accessToken = await getAccessToken();
+
+      if (!accessToken) {
+        router.push("/");
+        return;
+      }
+
+      const response = await fetch(`/api/ppmu/${type}/${id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          itemId: item.id,
+          newTotalPrice: value,
+        }),
+      });
+      const responseData = await readResponseJson(response);
+
+      if (!response.ok) {
+        setErrorMessage(responseData?.error || "Could not update final price.");
+        return;
+      }
+
+      setData((current) => {
+        if (!current) return current;
+
+        const nextItems = (current.items || []).map((currentItem) =>
+          currentItem.id === item.id
+            ? { ...currentItem, new_total_price: value }
+            : currentItem,
+        );
+
+        return {
+          ...current,
+          items: nextItems,
+          total_price: getEffectiveFinalTotal(nextItems),
+        };
+      });
+      setEditingPriceItemId(null);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("Server error while updating final price.");
+    } finally {
+      setSavingPriceItemId(null);
+    }
+  }
+
+  function requestDecision(item, decision) {
+    if (decision === "approved") {
+      setPendingApproval({ type: "single", itemId: item.id, decision });
+      return;
+    }
+
+    setPendingRejection({
+      type: "single",
+      itemId: item.id,
+      itemName: item.equipment_name || item.equipment_id || "this item",
+      decision,
+    });
+  }
 
   async function handleDecision(itemId, decision) {
     setIsSubmitting(`${itemId}-${decision}`);
@@ -190,7 +327,7 @@ export default function PpmuRequestDetailPage() {
         return;
       }
 
-      await fetchData();
+      updateItemDecision(itemId, decision, responseData.process);
     } catch (error) {
       console.error(error);
       setErrorMessage("Server error while saving decision.");
@@ -199,7 +336,7 @@ export default function PpmuRequestDetailPage() {
     }
   }
 
-  async function handleBulkDecision(decision) {
+  function requestBulkDecision(decision) {
     const reviewableItems = (data?.items || []).filter(
       (item) => item.can_review,
     );
@@ -208,6 +345,23 @@ export default function PpmuRequestDetailPage() {
       setErrorMessage("There are no equipment items available for review.");
       return;
     }
+
+    if (decision === "approved") {
+      setPendingApproval({ type: "bulk", decision });
+      return;
+    }
+
+    setPendingRejection({
+      type: "bulk",
+      count: reviewableItems.length,
+      decision,
+    });
+  }
+
+  async function handleBulkDecision(decision) {
+    const reviewableItems = (data?.items || []).filter(
+      (item) => item.can_review,
+    );
 
     setIsSubmitting(`bulk-${decision}`);
     setErrorMessage("");
@@ -241,10 +395,11 @@ export default function PpmuRequestDetailPage() {
           );
           return;
         }
+
+        updateItemDecision(item.id, decision, responseData.process);
       }
 
       setBulkRemarks("");
-      await fetchData();
     } catch (error) {
       console.error(error);
       setErrorMessage("Server error while saving all decisions.");
@@ -271,6 +426,34 @@ export default function PpmuRequestDetailPage() {
 
   const reviewableItems = data.items.filter((item) => item.can_review);
   const reviewableCount = reviewableItems.length;
+
+  async function confirmPendingApproval() {
+    const action = pendingApproval;
+    setPendingApproval(null);
+
+    if (action?.type === "single") {
+      await handleDecision(action.itemId, action.decision);
+      return;
+    }
+
+    if (action?.type === "bulk") {
+      await handleBulkDecision(action.decision);
+    }
+  }
+
+  async function confirmPendingRejection() {
+    const action = pendingRejection;
+    setPendingRejection(null);
+
+    if (action?.type === "single") {
+      await handleDecision(action.itemId, action.decision);
+      return;
+    }
+
+    if (action?.type === "bulk") {
+      await handleBulkDecision(action.decision);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-background-main px-4 py-6 md:px-8">
@@ -305,7 +488,7 @@ export default function PpmuRequestDetailPage() {
             <div className="text-left md:text-right">
               <p className="text-sm text-text-muted">Total</p>
               <p className="text-3xl font-semibold text-primary">
-                {formatRmFromUsd(data.total_price || 0)}
+                {formatRm(getEffectiveFinalTotal(data.items || []))}
               </p>
             </div>
           </div>
@@ -369,7 +552,7 @@ export default function PpmuRequestDetailPage() {
             <div className="flex gap-3 lg:min-w-80">
               <button
                 type="button"
-                onClick={() => handleBulkDecision("approved")}
+                onClick={() => requestBulkDecision("approved")}
                 disabled={reviewableCount === 0 || Boolean(isSubmitting)}
                 className="flex-1 rounded-xl border border-green-400 px-4 py-3 font-semibold text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -377,7 +560,7 @@ export default function PpmuRequestDetailPage() {
               </button>
               <button
                 type="button"
-                onClick={() => handleBulkDecision("rejected")}
+                onClick={() => requestBulkDecision("rejected")}
                 disabled={reviewableCount === 0 || Boolean(isSubmitting)}
                 className="flex-1 rounded-xl border border-red-400 px-4 py-3 font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -425,9 +608,14 @@ export default function PpmuRequestDetailPage() {
                     {item.equipment_name}
                   </h2>
                 </div>
-                <p className="text-xl font-semibold text-primary">
-                  {formatRmFromUsd(item.total_price || 0)}
-                </p>
+                <div className="text-left lg:text-right">
+                  <p className="text-xl font-semibold text-primary">
+                    {formatRm(getEffectiveFinalPrice(item))}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-text-muted">
+                    Estimated: {formatRm(item.total_price || 0)}
+                  </p>
+                </div>
               </div>
 
               <div className="mt-6 space-y-6 border-t border-border-light pt-6">
@@ -489,7 +677,9 @@ export default function PpmuRequestDetailPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <ReviewCard
                     title="Unit Leader Recommendation"
-                    decision={formatUnitLeaderDecision(item.unit_leader_process)}
+                    decision={formatUnitLeaderDecision(
+                      item.unit_leader_process,
+                    )}
                     process={item.unit_leader_process}
                   />
                   <ReviewCard
@@ -521,10 +711,78 @@ export default function PpmuRequestDetailPage() {
                     />
                   </label>
 
+                  <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-xs font-semibold uppercase text-text-muted">
+                          Final Price
+                        </p>
+                        {editingPriceItemId === item.id ? (
+                          <div className="mt-2 flex items-center gap-2">
+                            <span className="text-sm font-semibold text-text-main">
+                              RM
+                            </span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={priceByItem[item.id] ?? ""}
+                              onChange={(event) =>
+                                setPriceByItem((current) => ({
+                                  ...current,
+                                  [item.id]: event.target.value,
+                                }))
+                              }
+                              className="w-36 rounded-lg border border-border-light bg-white px-3 py-2 text-lg font-semibold text-text-main outline-none focus:border-primary"
+                            />
+                          </div>
+                        ) : (
+                          <p className="mt-1 text-2xl font-bold text-primary">
+                            {formatRm(getEffectiveFinalPrice(item))}
+                          </p>
+                        )}
+                        <p className="mt-1 text-xs text-text-muted">
+                          Estimated: {formatRm(item.total_price || 0)}
+                        </p>
+                      </div>
+                      {editingPriceItemId === item.id ? (
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={cancelEditingPrice}
+                            disabled={savingPriceItemId === item.id}
+                            className="rounded-xl border border-border-light px-4 py-2 text-sm font-semibold text-text-main hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => saveFinalPrice(item)}
+                            disabled={savingPriceItemId === item.id}
+                            className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {savingPriceItemId === item.id
+                              ? "Saving..."
+                              : "Save"}
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => startEditingPrice(item)}
+                          disabled={!item.can_review || Boolean(isSubmitting)}
+                          className="rounded-xl border border-primary px-4 py-2 text-sm font-semibold text-primary hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Edit
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="mt-4 flex gap-3">
                     <button
                       type="button"
-                      onClick={() => handleDecision(item.id, "approved")}
+                      onClick={() => requestDecision(item, "approved")}
                       disabled={!item.can_review || Boolean(isSubmitting)}
                       className="flex-1 rounded-xl border border-green-400 px-4 py-3 font-semibold text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
@@ -534,7 +792,7 @@ export default function PpmuRequestDetailPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleDecision(item.id, "rejected")}
+                      onClick={() => requestDecision(item, "rejected")}
                       disabled={!item.can_review || Boolean(isSubmitting)}
                       className="flex-1 rounded-xl border border-red-400 px-4 py-3 font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
@@ -549,6 +807,20 @@ export default function PpmuRequestDetailPage() {
           ))}
         </div>
       </section>
+      {pendingApproval ? (
+        <ApprovalReminderModal
+          isBulk={pendingApproval.type === "bulk"}
+          onCancel={() => setPendingApproval(null)}
+          onConfirm={confirmPendingApproval}
+        />
+      ) : null}
+      {pendingRejection ? (
+        <RejectionConfirmModal
+          action={pendingRejection}
+          onCancel={() => setPendingRejection(null)}
+          onConfirm={confirmPendingRejection}
+        />
+      ) : null}
     </main>
   );
 }
@@ -612,6 +884,75 @@ function ReviewCard({ title, decision, process }) {
       <p className="mt-1 text-sm text-text-muted">
         {process?.remarks || process?.rejection_reason || "No remarks yet."}
       </p>
+    </div>
+  );
+}
+
+function ApprovalReminderModal({ isBulk, onCancel, onConfirm }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
+      <div className="w-full max-w-md rounded-2xl border border-border-light bg-white p-5 shadow-xl">
+        <h2 className="text-lg font-semibold text-text-main">
+          Confirm Approval
+        </h2>
+        <p className="mt-3 text-sm leading-6 text-text-muted">
+          Before approving, make sure the payment has been manually deducted in
+          the UTM finance system and the final price is correct.
+        </p>
+        <div className="mt-5 flex gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 rounded-xl border border-border-light px-4 py-3 font-semibold text-text-main hover:bg-background-main"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="flex-1 rounded-xl border border-green-500 bg-green-600 px-4 py-3 font-semibold text-white hover:bg-green-700"
+          >
+            {isBulk ? "Confirm Approve All" : "Confirm Approve"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RejectionConfirmModal({ action, onCancel, onConfirm }) {
+  const isBulk = action.type === "bulk";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
+      <div className="w-full max-w-md rounded-2xl border border-border-light bg-white p-5 shadow-xl">
+        <h2 className="text-lg font-semibold text-text-main">
+          {isBulk ? "Reject all items?" : "Reject this item?"}
+        </h2>
+        <p className="mt-3 text-sm leading-6 text-text-muted">
+          {isBulk
+            ? `Are you sure you want to reject all ${action.count} available equipment item${
+                action.count === 1 ? "" : "s"
+              }?`
+            : `Are you sure you want to reject ${action.itemName}?`}
+        </p>
+        <div className="mt-5 flex gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 rounded-xl border border-border-light px-4 py-3 font-semibold text-text-main hover:bg-background-main"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="flex-1 rounded-xl border border-red-500 bg-red-600 px-4 py-3 font-semibold text-white hover:bg-red-700"
+          >
+            {isBulk ? "Confirm Reject All" : "Confirm Reject"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

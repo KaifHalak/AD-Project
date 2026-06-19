@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, UserRound } from "lucide-react";
 import { getCurrentSession } from "@/lib/supabase/auth";
-import { formatRmFromUsd } from "@/lib/currency";
+import { formatRm } from "@/lib/currency";
+import { deriveOverallStatus, getDisplayStatus } from "@/lib/bookingRequest";
 
 function formatDate(dateString) {
   if (!dateString) return "-";
@@ -60,6 +61,58 @@ function itemCardClass(item) {
   }
 }
 
+function getUnitLeaderItemStatus(decision) {
+  return decision === "approved" ? "under_ppmu_review" : "rejected";
+}
+
+function getOriginalTotal(items) {
+  return (items || []).reduce((sum, item) => sum + Number(item.total_price || 0), 0);
+}
+
+function getUnitLeaderAdjustedTotal(items) {
+  return (items || []).reduce((sum, item) => {
+    if (item.unit_leader_process?.decision === "rejected") return sum;
+    if (item.status === "rejected") return sum;
+    return sum + Number(item.total_price || 0);
+  }, 0);
+}
+
+function getDecisionVerb(decision) {
+  return decision === "approved" ? "recommend" : "reject";
+}
+
+function getConfirmationTitle(action) {
+  const verb = getDecisionVerb(action.decision);
+
+  if (action.mode === "bulk") {
+    return `${verb.charAt(0).toUpperCase()}${verb.slice(1)} all items?`;
+  }
+
+  return `${verb.charAt(0).toUpperCase()}${verb.slice(1)} this item?`;
+}
+
+function getConfirmationMessage(action) {
+  const verb = getDecisionVerb(action.decision);
+
+  if (action.mode === "bulk") {
+    return `Are you sure you want to ${verb} all ${action.count} available equipment item${
+      action.count === 1 ? "" : "s"
+    }?`;
+  }
+
+  return `Are you sure you want to ${verb} ${action.itemName}?`;
+}
+
+function getConfirmationActionLabel(action) {
+  const verb = getDecisionVerb(action.decision);
+
+  if (action.mode === "bulk") {
+    return `${verb.charAt(0).toUpperCase()}${verb.slice(1)} All`;
+  }
+
+  return verb.charAt(0).toUpperCase() + verb.slice(1);
+}
+
 async function readResponseJson(response) {
   const contentType = response.headers.get("content-type") || "";
 
@@ -79,6 +132,7 @@ export default function UnitLeaderRequestDetailPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [bulkRemarks, setBulkRemarks] = useState("");
   const [remarksByItem, setRemarksByItem] = useState({});
+  const [pendingDecision, setPendingDecision] = useState(null);
 
   const getAccessToken = useCallback(async () => {
     const { data: sessionData } = await getCurrentSession();
@@ -120,6 +174,31 @@ export default function UnitLeaderRequestDetailPage() {
     fetchData();
   }, [fetchData]);
 
+  function updateItemDecision(itemId, decision, processRecord) {
+    setData((current) => {
+      if (!current) return current;
+
+      const nextItems = (current.items || []).map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              status: getUnitLeaderItemStatus(decision),
+              unit_leader_process: processRecord,
+              can_review: false,
+            }
+          : item,
+      );
+      const nextStatus = deriveOverallStatus(nextItems);
+
+      return {
+        ...current,
+        items: nextItems,
+        display_status: getDisplayStatus(nextStatus),
+        display_status_type: nextStatus,
+      };
+    });
+  }
+
   async function handleDecision(itemId, decision) {
     setIsSubmitting(`${itemId}-${decision}`);
     setErrorMessage("");
@@ -151,7 +230,7 @@ export default function UnitLeaderRequestDetailPage() {
         return;
       }
 
-      await fetchData();
+      updateItemDecision(itemId, decision, responseData.process);
     } catch (error) {
       console.error(error);
       setErrorMessage("Server error while saving decision.");
@@ -200,16 +279,57 @@ export default function UnitLeaderRequestDetailPage() {
           );
           return;
         }
+
+        updateItemDecision(item.id, decision, responseData.process);
       }
 
       setBulkRemarks("");
-      await fetchData();
     } catch (error) {
       console.error(error);
       setErrorMessage("Server error while saving all decisions.");
     } finally {
       setIsSubmitting("");
     }
+  }
+
+  function requestBulkDecision(decision) {
+    const reviewableItems = (data?.items || []).filter((item) => item.can_review);
+
+    if (reviewableItems.length === 0) {
+      setErrorMessage("There are no equipment items available for review.");
+      return;
+    }
+
+    setPendingDecision({
+      mode: "bulk",
+      decision,
+      count: reviewableItems.length,
+    });
+  }
+
+  function requestItemDecision(item, decision) {
+    if (!item.can_review) return;
+
+    setPendingDecision({
+      mode: "item",
+      decision,
+      itemId: item.id,
+      itemName: item.equipment_name || item.equipment_id || "this item",
+    });
+  }
+
+  function confirmPendingDecision() {
+    const action = pendingDecision;
+    setPendingDecision(null);
+
+    if (!action) return;
+
+    if (action.mode === "bulk") {
+      handleBulkDecision(action.decision);
+      return;
+    }
+
+    handleDecision(action.itemId, action.decision);
   }
 
   if (isLoading) {
@@ -228,6 +348,8 @@ export default function UnitLeaderRequestDetailPage() {
 
   const reviewableItems = data.items.filter((item) => item.can_review);
   const reviewableCount = reviewableItems.length;
+  const originalTotal = getOriginalTotal(data.items);
+  const adjustedTotal = getUnitLeaderAdjustedTotal(data.items);
 
   return (
     <main className="min-h-screen bg-background-main px-4 py-6 md:px-8">
@@ -262,7 +384,10 @@ export default function UnitLeaderRequestDetailPage() {
             <div className="text-left md:text-right">
               <p className="text-sm text-text-muted">Total</p>
               <p className="text-3xl font-semibold text-primary">
-                {formatRmFromUsd(data.total_price || 0)}
+                {formatRm(adjustedTotal)}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-text-muted">
+                Original total: {formatRm(originalTotal)}
               </p>
             </div>
           </div>
@@ -319,7 +444,7 @@ export default function UnitLeaderRequestDetailPage() {
             <div className="flex gap-3 lg:min-w-80">
               <button
                 type="button"
-                onClick={() => handleBulkDecision("approved")}
+                onClick={() => requestBulkDecision("approved")}
                 disabled={reviewableCount === 0 || Boolean(isSubmitting)}
                 className="flex-1 rounded-xl border border-green-400 px-4 py-3 font-semibold text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -327,7 +452,7 @@ export default function UnitLeaderRequestDetailPage() {
               </button>
               <button
                 type="button"
-                onClick={() => handleBulkDecision("rejected")}
+                onClick={() => requestBulkDecision("rejected")}
                 disabled={reviewableCount === 0 || Boolean(isSubmitting)}
                 className="flex-1 rounded-xl border border-red-400 px-4 py-3 font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -376,7 +501,7 @@ export default function UnitLeaderRequestDetailPage() {
                   </h2>
                 </div>
                 <p className="text-xl font-semibold text-primary">
-                  {formatRmFromUsd(item.total_price || 0)}
+                  {formatRm(item.total_price || 0)}
                 </p>
               </div>
 
@@ -445,7 +570,7 @@ export default function UnitLeaderRequestDetailPage() {
                   <div className="mt-4 flex gap-3">
                     <button
                       type="button"
-                      onClick={() => handleDecision(item.id, "approved")}
+                      onClick={() => requestItemDecision(item, "approved")}
                       disabled={!item.can_review || Boolean(isSubmitting)}
                       className="flex-1 rounded-xl border border-green-400 px-4 py-3 font-semibold text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
@@ -453,7 +578,7 @@ export default function UnitLeaderRequestDetailPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleDecision(item.id, "rejected")}
+                      onClick={() => requestItemDecision(item, "rejected")}
                       disabled={!item.can_review || Boolean(isSubmitting)}
                       className="flex-1 rounded-xl border border-red-400 px-4 py-3 font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
@@ -466,6 +591,39 @@ export default function UnitLeaderRequestDetailPage() {
           ))}
         </div>
       </section>
+
+      {pendingDecision ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-border-light bg-white p-6 shadow-xl">
+            <h2 className="text-xl font-semibold text-text-main">
+              {getConfirmationTitle(pendingDecision)}
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-text-muted">
+              {getConfirmationMessage(pendingDecision)}
+            </p>
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setPendingDecision(null)}
+                className="rounded-xl border border-border-light px-4 py-2 font-semibold text-text-muted hover:bg-background-main"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmPendingDecision}
+                className={`rounded-xl px-4 py-2 font-semibold text-white ${
+                  pendingDecision.decision === "approved"
+                    ? "bg-green-600 hover:bg-green-700"
+                    : "bg-red-600 hover:bg-red-700"
+                }`}
+              >
+                {getConfirmationActionLabel(pendingDecision)}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

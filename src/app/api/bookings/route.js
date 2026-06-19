@@ -145,6 +145,10 @@ async function enrichParentBookings(admin, bookings) {
           : `${items.length} equipment items`,
       resource_subtitle:
         items.length === 1 ? items[0].lab_name : "Multiple equipment request",
+      estimated_total_price: items.reduce(
+        (sum, item) => sum + Number(item.total_price || 0),
+        0,
+      ),
       total_price: booking.final_total_price,
       display_status: getDisplayStatus(status),
       display_status_type: status,

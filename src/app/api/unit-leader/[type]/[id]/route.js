@@ -17,6 +17,12 @@ import {
 
 const ALLOWED_DECISIONS = new Set(["approved", "rejected"]);
 
+function runAsyncNotification(label, task) {
+  task().catch((error) => {
+    console.error(`${label} failed:`, error);
+  });
+}
+
 function buildNotificationBooking(requestDetail, item) {
   return {
     ...requestDetail,
@@ -133,7 +139,8 @@ async function getRequestDetail(admin, bookingId) {
     .from("equipment_bookings")
     .select("*")
     .eq("booking_id", bookingId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
 
   if (itemsError) return { error: itemsError };
 
@@ -371,69 +378,64 @@ export async function POST(request, { params }) {
     }
 
     await refreshParentStatus(admin, parsed.id);
-    const { request: updatedRequestDetail, error: updatedDetailError } =
-      await getRequestDetail(admin, parsed.id);
-    let notifications = null;
+    runAsyncNotification("Unit leader notifications", async () => {
+      const { request: updatedRequestDetail, error: updatedDetailError } =
+        await getRequestDetail(admin, parsed.id);
 
-    if (updatedDetailError) {
-      console.error("Error loading request after unit leader decision:", updatedDetailError);
-    } else if (updatedRequestDetail) {
-      try {
-        const decidedItem =
-          updatedRequestDetail.items?.find((requestItem) => requestItem.id === itemId) || item;
-        const bookingForEmail = buildNotificationBooking(
-          updatedRequestDetail,
-          decidedItem,
-        );
-        const studentNotification = await sendBookingDecisionEmail({
-          admin,
-          type: "request",
-          id: updatedRequestDetail.id,
-          processRecord,
-          booking: bookingForEmail,
-          requester: {
-            username: updatedRequestDetail.user_name || "",
-            email: updatedRequestDetail.user_email || "",
-          },
-        });
-
-        if (decision === "approved") {
-          const { data: ppmuUsers, error: ppmuUsersError } = await admin
-            .from("users")
-            .select("username, email")
-            .eq("role", "ppmu");
-
-          if (ppmuUsersError) {
-            console.error("Error loading PPMU users for notification:", ppmuUsersError);
-          }
-
-          notifications = {
-            student: studentNotification,
-            ppmu: await sendUnitLeaderRecommendationPpmuEmail({
-              booking: bookingForEmail,
-              unitLeader: requester,
-              ppmuUsers: ppmuUsers || [],
-            }),
-          };
-        } else {
-          notifications = {
-            student: studentNotification,
-            pic: await sendUnitLeaderRejectionPicEmail({
-              booking: bookingForEmail,
-              pic: {
-                username: updatedRequestDetail.pic_name || "",
-                email: updatedRequestDetail.pic_email || "",
-              },
-              unitLeader: requester,
-              processRecord,
-            }),
-          };
-        }
-      } catch (notificationError) {
-        console.error("Error sending unit leader notifications:", notificationError);
-        notifications = { sent: false, error: notificationError.message };
+      if (updatedDetailError) {
+        console.error("Error loading request after unit leader decision:", updatedDetailError);
+        return;
       }
-    }
+
+      if (!updatedRequestDetail) return;
+
+      const decidedItem =
+        updatedRequestDetail.items?.find((requestItem) => requestItem.id === itemId) || item;
+      const bookingForEmail = buildNotificationBooking(
+        updatedRequestDetail,
+        decidedItem,
+      );
+      const studentNotification = await sendBookingDecisionEmail({
+        admin,
+        type: "request",
+        id: updatedRequestDetail.id,
+        processRecord,
+        booking: bookingForEmail,
+        requester: {
+          username: updatedRequestDetail.user_name || "",
+          email: updatedRequestDetail.user_email || "",
+        },
+      });
+
+      if (decision === "approved") {
+        const { data: ppmuUsers, error: ppmuUsersError } = await admin
+          .from("users")
+          .select("username, email")
+          .eq("role", "ppmu");
+
+        if (ppmuUsersError) {
+          console.error("Error loading PPMU users for notification:", ppmuUsersError);
+        }
+
+        await sendUnitLeaderRecommendationPpmuEmail({
+          booking: bookingForEmail,
+          unitLeader: requester,
+          ppmuUsers: ppmuUsers || [],
+        });
+      } else {
+        await sendUnitLeaderRejectionPicEmail({
+          booking: bookingForEmail,
+          pic: {
+            username: updatedRequestDetail.pic_name || "",
+            email: updatedRequestDetail.pic_email || "",
+          },
+          unitLeader: requester,
+          processRecord,
+        });
+      }
+
+      return studentNotification;
+    });
 
     return NextResponse.json(
       {
@@ -442,7 +444,7 @@ export async function POST(request, { params }) {
             ? "Equipment item recommended."
             : "Equipment item rejected.",
         process: processRecord,
-        notifications,
+        notifications: { queued: true },
       },
       { status: 201 },
     );

@@ -12,6 +12,7 @@ export default function AppNavbar() {
   const pathname = usePathname();
   const [hasActiveVerification, setHasActiveVerification] = useState(false);
   const [role, setRole] = useState("");
+  const [currentUserId, setCurrentUserId] = useState("");
   const [bookingRequestCount, setBookingRequestCount] = useState(0);
 
   const accountActive = pathname.startsWith("/account");
@@ -42,10 +43,12 @@ export default function AppNavbar() {
         if (!sessionData?.session) {
           setHasActiveVerification(false);
           setRole("");
+          setCurrentUserId("");
           return;
         }
 
         const accessToken = sessionData.session.access_token;
+        setCurrentUserId(sessionData.session.user?.id || "");
         const [verificationResponse, authResult] = await Promise.all([
           fetchVerificationStatus(accessToken),
           getCurrentUser(),
@@ -93,6 +96,7 @@ export default function AppNavbar() {
         if (isMounted) {
           setHasActiveVerification(false);
           setRole("");
+          setCurrentUserId("");
         }
       }
     }
@@ -106,7 +110,9 @@ export default function AppNavbar() {
 
   useEffect(() => {
     function refreshBookingRequestCount() {
-      setBookingRequestCount(getStoredBookingRequestItems().length);
+      setBookingRequestCount(
+        getStoredBookingRequestItems(currentUserId).length,
+      );
     }
 
     refreshBookingRequestCount();
@@ -120,7 +126,7 @@ export default function AppNavbar() {
       );
       window.removeEventListener("storage", refreshBookingRequestCount);
     };
-  }, []);
+  }, [currentUserId]);
 
   // Keep login and registration screens focused by hiding global navigation.
   if (pathname === "/" || pathname === "/register") {

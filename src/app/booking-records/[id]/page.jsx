@@ -6,7 +6,7 @@ import { ArrowLeft, Download, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Loader from "@/components/loader";
 import { getCurrentSession } from "@/lib/supabase/auth";
-import { formatRmFromUsd } from "@/lib/currency";
+import { formatRm } from "@/lib/currency";
 import { downloadQuotationPdf } from "@/lib/quotationPdf";
 import { downloadBookingReceiptPdf } from "@/lib/bookingReceiptPdf";
 
@@ -101,16 +101,33 @@ function canDownloadReceipt(booking) {
   return booking?.display_status_type !== "cancelled";
 }
 
-function getItemDisplayTotal(item) {
-  return item?.status === "rejected" ? 0 : Number(item?.total_price || 0);
+function getItemEstimatedTotal(item) {
+  return Number(item?.total_price || 0);
 }
 
-function getBookingDisplayTotal(booking) {
+function getItemFinalTotal(item) {
+  if (item?.status === "rejected") return 0;
+  return Number(item?.new_total_price ?? item?.total_price ?? 0);
+}
+
+function getBookingEstimatedTotal(booking) {
+  if (!Array.isArray(booking?.items)) {
+    return Number(booking?.estimated_total_price ?? booking?.total_price ?? 0);
+  }
+
+  return booking.items.reduce((sum, item) => sum + getItemEstimatedTotal(item), 0);
+}
+
+function getBookingFinalTotal(booking) {
+  if (booking?.display_status_type === "processed") {
+    return Number(booking?.total_price || 0);
+  }
+
   if (!Array.isArray(booking?.items)) {
     return Number(booking?.total_price || 0);
   }
 
-  return booking.items.reduce((sum, item) => sum + getItemDisplayTotal(item), 0);
+  return booking.items.reduce((sum, item) => sum + getItemFinalTotal(item), 0);
 }
 
 export default function BookingRecordDetailPage() {
@@ -239,7 +256,7 @@ export default function BookingRecordDetailPage() {
       downloadBookingReceiptPdf(booking || {});
     } catch (error) {
       console.error(error);
-      setErrorMessage("Something went wrong while downloading the receipt.");
+      setErrorMessage("Something went wrong while downloading the booking details.");
     } finally {
       setIsDownloadingReceipt(false);
     }
@@ -293,10 +310,25 @@ export default function BookingRecordDetailPage() {
             </div>
 
             <div className="text-left md:text-right">
-              <p className="text-sm text-text-muted">Total</p>
-              <p className="text-3xl font-semibold text-primary">
-                {formatRmFromUsd(getBookingDisplayTotal(booking))}
-              </p>
+              {isProcessedBooking(booking) ? (
+                <>
+                  <p className="text-sm text-text-muted">Estimated Total</p>
+                  <p className="text-xl font-semibold text-text-main">
+                    {formatRm(getBookingEstimatedTotal(booking))}
+                  </p>
+                  <p className="mt-2 text-sm text-text-muted">Final Total</p>
+                  <p className="text-3xl font-semibold text-primary">
+                    {formatRm(getBookingFinalTotal(booking))}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-text-muted">Total</p>
+                  <p className="text-3xl font-semibold text-primary">
+                    {formatRm(getBookingFinalTotal(booking))}
+                  </p>
+                </>
+              )}
               {[
                 "pending_unit_leader_process",
                 "pending_ppmu_process",
@@ -324,7 +356,7 @@ export default function BookingRecordDetailPage() {
                       <Download className="h-4 w-4" />
                       {isDownloadingReceipt
                         ? "Preparing..."
-                        : "Download Receipt"}
+                        : "Download Booking Details"}
                     </Button>
                   ) : null}
                   {isProcessedBooking(booking) ? (
@@ -419,9 +451,20 @@ export default function BookingRecordDetailPage() {
                   </h2>
                 </div>
 
-                <p className="text-xl font-semibold text-primary">
-                  {formatRmFromUsd(getItemDisplayTotal(item))}
-                </p>
+                {isProcessedBooking(booking) ? (
+                  <div className="text-left lg:text-right">
+                    <p className="text-sm font-semibold text-text-main">
+                      Estimated: {formatRm(getItemEstimatedTotal(item))}
+                    </p>
+                    <p className="mt-1 text-xl font-semibold text-primary">
+                      Final: {formatRm(getItemFinalTotal(item))}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xl font-semibold text-primary">
+                    {formatRm(getItemFinalTotal(item))}
+                  </p>
+                )}
               </div>
 
               <div className="mt-6 space-y-6 border-t border-border-light pt-6">

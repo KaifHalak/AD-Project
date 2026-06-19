@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Activity,
@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { BookingInstructions } from "@/components/booking-instructions";
 import { getCurrentSession } from "@/lib/supabase/auth";
 import { getSupabaseBrowserClient } from "@/lib/supabase/supabaseClient";
-import { formatRmFromUsd } from "@/lib/currency";
+import { formatRm } from "@/lib/currency";
 import {
   calculateItemTotal,
   getBookingDates,
@@ -157,6 +157,8 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [addSuccessMessage, setAddSuccessMessage] = useState("");
+  const [currentUserId, setCurrentUserId] = useState("");
+  const currentUserIdRef = useRef("");
   const [form, setForm] = useState({
     startDate: getDefaultBookingDateString(),
     endDate: getDefaultBookingDateString(),
@@ -176,6 +178,10 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
         router.replace("/");
         return;
       }
+
+      const userId = sessionData.session.user?.id || "";
+      currentUserIdRef.current = userId;
+      setCurrentUserId(userId);
 
       const supabase = getSupabaseBrowserClient();
       const [labsResult, equipmentResult] = await Promise.all([
@@ -204,7 +210,9 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
       }
 
       setBasketEquipmentIds(
-        new Set(getStoredBookingRequestItems().map((item) => item.equipmentId)),
+        new Set(
+          getStoredBookingRequestItems(userId).map((item) => item.equipmentId),
+        ),
       );
       setIsLoading(false);
     }
@@ -213,7 +221,11 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
 
     function refreshBasket() {
       setBasketEquipmentIds(
-        new Set(getStoredBookingRequestItems().map((item) => item.equipmentId)),
+        new Set(
+          getStoredBookingRequestItems(currentUserIdRef.current).map(
+            (item) => item.equipmentId,
+          ),
+        ),
       );
     }
 
@@ -364,6 +376,7 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
     try {
       const { data: sessionData } = await getCurrentSession();
       const token = sessionData?.session?.access_token;
+      const userId = sessionData?.session?.user?.id || currentUserId;
 
       if (!token) {
         router.replace("/");
@@ -398,7 +411,7 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
         dayCount,
       });
       const nextItems = [
-        ...getStoredBookingRequestItems(),
+        ...getStoredBookingRequestItems(userId),
         {
           clientId: `${selectedEquipment.id}-${Date.now()}`,
           equipmentId: selectedEquipment.id,
@@ -419,7 +432,7 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
         },
       ];
 
-      saveStoredBookingRequestItems(nextItems);
+      saveStoredBookingRequestItems(nextItems, userId);
       setBasketEquipmentIds(new Set(nextItems.map((item) => item.equipmentId)));
       setAddSuccessMessage(
         `${selectedEquipment.name} added to your booking request.`,
@@ -484,7 +497,7 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
                 </p>
               </div>
               <p className="text-3xl font-semibold text-primary">
-                {formatRmFromUsd(selectedEquipment.price_per_hour || 0)}/hr
+                {formatRm(selectedEquipment.price_per_hour || 0)}/hr
               </p>
             </div>
           </div>
@@ -887,7 +900,7 @@ export function BookingContent({ initialLabId = "", initialEquipmentId = "" }) {
                               {statusLabel}
                             </span>
                             <span className="font-semibold text-primary">
-                              {formatRmFromUsd(item.price_per_hour || 0)}/hr
+                              {formatRm(item.price_per_hour || 0)}/hr
                             </span>
                           </div>
                         </div>

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getCurrentSession } from "@/lib/supabase/auth";
-import { formatRmFromUsd } from "@/lib/currency";
+import { formatRm } from "@/lib/currency";
 
 function formatDateTime(dateTimeValue) {
   if (!dateTimeValue) return "-";
@@ -19,7 +19,7 @@ function formatDateTime(dateTimeValue) {
 }
 
 function formatPrice(value) {
-  return value === null || value === undefined ? "-" : formatRmFromUsd(value);
+  return value === null || value === undefined ? "-" : formatRm(value);
 }
 
 function formatStudyLevel(value) {

@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatRmFromUsd } from "@/lib/currency";
+import { formatRm } from "@/lib/currency";
 import { getCurrentSession } from "@/lib/supabase/auth";
 
 const STATUS_OPTIONS = [
@@ -300,7 +300,7 @@ export default function EditEquipmentPage() {
               </div>
               <div className="space-y-3 lg:text-right">
                 <p className="text-3xl font-semibold text-primary">
-                  {formatRmFromUsd(selectedEquipment.price_per_hour || 0)}/hr
+                  {formatRm(selectedEquipment.price_per_hour || 0)}/hr
                 </p>
                 <span
                   className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase ${getStatusClass(
@@ -576,7 +576,7 @@ export default function EditEquipmentPage() {
                           {getStatusLabel(item.status)}
                         </span>
                         <span className="font-semibold text-primary">
-                          {formatRmFromUsd(item.price_per_hour || 0)}/hr
+                          {formatRm(item.price_per_hour || 0)}/hr
                         </span>
                       </div>
                     </div>

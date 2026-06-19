@@ -483,6 +483,53 @@ function buildSubmittedEmail({ booking, requester }) {
   };
 }
 
+function buildPicTokenAssignedEmail({ tokenRecord, recipient, pic }) {
+  const greetingName = getRecipientName(recipient);
+  const picName = getRecipientName(pic);
+  const subject = "PIC code assigned to your account";
+  const lines = [
+    `Hi ${greetingName},`,
+    "",
+    `${picName} has assigned a PIC code to your account.`,
+    "",
+    "Code details:",
+    `Code: ${tokenRecord.token || "-"}`,
+    `Expires at: ${tokenRecord.expires_at || "-"}`,
+    "",
+    "PIC details:",
+    `Name: ${picName}`,
+    `Email: ${pic.email || "-"}`,
+    "",
+    "Use this code when completing your booking request.",
+    "",
+    "AD Booking System",
+  ];
+
+  return {
+    to: recipient.email,
+    subject,
+    text: lines.join("\n"),
+    html: [
+      `<p>Hi ${escapeHtml(greetingName)},</p>`,
+      `<p>${escapeHtml(picName)} has assigned a PIC code to your account.</p>`,
+      "<p><strong>Code details:</strong></p>",
+      "<ul>",
+      `<li><strong>Code:</strong> ${escapeHtml(tokenRecord.token || "-")}</li>`,
+      `<li><strong>Expires at:</strong> ${escapeHtml(
+        tokenRecord.expires_at || "-",
+      )}</li>`,
+      "</ul>",
+      "<p><strong>PIC details:</strong></p>",
+      "<ul>",
+      `<li><strong>Name:</strong> ${escapeHtml(picName)}</li>`,
+      `<li><strong>Email:</strong> ${escapeHtml(pic.email || "-")}</li>`,
+      "</ul>",
+      "<p>Use this code when completing your booking request.</p>",
+      "<p>AD Booking System</p>",
+    ].join(""),
+  };
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -734,6 +781,20 @@ export async function sendBookingSubmittedPicEmail({ booking, requester, pic }) 
     console.error("Booking submitted PIC email failed:", smtpError);
     return { sent: false, error: smtpError.message };
   }
+}
+
+export async function sendPicTokenAssignedEmail({ tokenRecord, recipient, pic }) {
+  if (!recipient?.email) {
+    return {
+      sent: false,
+      error: "Assigned user email not found for notification.",
+    };
+  }
+
+  return sendOptionalEmail(
+    buildPicTokenAssignedEmail({ tokenRecord, recipient, pic }),
+    "PIC token assigned email",
+  );
 }
 
 export async function sendPpmuApprovalPicEmail({ booking, pic, ppmu }) {

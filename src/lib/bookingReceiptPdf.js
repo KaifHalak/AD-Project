@@ -1,5 +1,5 @@
 import { jsPDF } from "jspdf";
-import { formatRmFromUsd } from "@/lib/currency";
+import { formatRm } from "@/lib/currency";
 
 function valueOrDash(value) {
   return value === null || value === undefined || value === ""
@@ -84,12 +84,34 @@ function getEstimatedItemTotal(item) {
   return Number(item?.total_price || item?.estimatedTotal || 0);
 }
 
+function getFinalItemTotal(item) {
+  const status = String(item?.status || item?.approvalStatus || "").toLowerCase();
+  if (status === "rejected") return 0;
+  return Number(item?.new_total_price ?? item?.finalTotal ?? item?.total_price ?? 0);
+}
+
 function getEstimatedTotal(booking, items) {
   if (items.length > 0) {
     return items.reduce((sum, item) => sum + getEstimatedItemTotal(item), 0);
   }
 
   return Number(booking?.total_price || booking?.final_total_price || 0);
+}
+
+function getFinalTotal(booking, items) {
+  if (items.length > 0) {
+    return items.reduce((sum, item) => sum + getFinalItemTotal(item), 0);
+  }
+
+  return Number(booking?.final_total_price || booking?.total_price || 0);
+}
+
+function isProcessedBooking(booking) {
+  return (
+    booking?.display_status_type === "processed" ||
+    booking?.display_status === "Processed" ||
+    booking?.overall_status === "processed"
+  );
 }
 
 export function createBookingReceiptPdfDoc(booking = {}) {
@@ -100,6 +122,8 @@ export function createBookingReceiptPdfDoc(booking = {}) {
   const contentWidth = pageWidth - margin * 2;
   const receiptNumber = `BRR-${valueOrDash(booking.id)}`;
   const estimatedTotal = getEstimatedTotal(booking, items);
+  const finalTotal = getFinalTotal(booking, items);
+  const processed = isProcessedBooking(booking);
 
   doc.setTextColor(25, 25, 25);
   doc.setFont("helvetica", "bold");
@@ -126,7 +150,7 @@ export function createBookingReceiptPdfDoc(booking = {}) {
 
   let y = 52;
   doc.setFontSize(15);
-  doc.text("BOOKING REQUEST RECEIPT", pageWidth / 2, y, { align: "center" });
+  doc.text("BOOKING REQUEST DETAILS", pageWidth / 2, y, { align: "center" });
   doc.setDrawColor(170, 0, 70);
   doc.line(margin, y + 4, pageWidth - margin, y + 4);
 
@@ -135,13 +159,13 @@ export function createBookingReceiptPdfDoc(booking = {}) {
   y = drawKeyValueRows(
     doc,
     [
-      ["Receipt / Request No.", receiptNumber],
+      ["Booking Details / Request No.", receiptNumber],
       ["Booking ID", booking.id],
       ["Submission Date", formatDateTime(booking.created_at)],
       ["Current Status", "Pending"],
       [
         "Note",
-        "This receipt confirms that your booking request has been submitted. Approval is subject to PPMU review.",
+        "These booking details confirm that your booking request has been submitted. Approval is subject to PPMU review.",
       ],
     ],
     margin,
@@ -209,8 +233,11 @@ export function createBookingReceiptPdfDoc(booking = {}) {
         `Date: ${formatDate(item.start_date || item.startDate)} to ${formatDate(item.end_date || item.endDate || item.start_date || item.startDate)}`,
         `Time: ${formatTime(item.start_time || item.startTime)} - ${formatTime(item.end_time || item.endTime)}`,
         `Purpose: ${valueOrDash(item.booking_reason || item.bookingReason)}`,
-        `Estimated Price: ${formatRmFromUsd(getEstimatedItemTotal(item))}`,
-      ];
+        `Estimated Price: ${formatRm(getEstimatedItemTotal(item))}`,
+        processed
+          ? `Final Price: ${formatRm(getFinalItemTotal(item))}`
+          : "",
+      ].filter(Boolean);
       const wrappedDetailLines = doc.splitTextToSize(
         detailLines.join("\n"),
         contentWidth - 8,
@@ -244,8 +271,11 @@ export function createBookingReceiptPdfDoc(booking = {}) {
     doc,
     [
       ["Total Requested Items", items.length],
-      ["Estimated Total Amount", formatRmFromUsd(estimatedTotal)],
-      ["Overall Status", "Pending Review"],
+      ["Estimated Total Amount", formatRm(estimatedTotal)],
+      ...(processed
+        ? [["Final Total Amount", formatRm(finalTotal)]]
+        : []),
+      ["Overall Status", processed ? "Processed" : "Pending Review"],
     ],
     margin,
     y,
@@ -258,7 +288,7 @@ export function createBookingReceiptPdfDoc(booking = {}) {
   doc.setTextColor(170, 0, 70);
   y = drawWrappedText(
     doc,
-    "This is a booking request receipt only. It does not confirm approval. Approved items and final payable amount may change after review by PPMU.",
+    "These are booking request details only. They do not confirm approval. Approved items and final payable amount may change after review by PPMU.",
     margin,
     y,
     contentWidth,
