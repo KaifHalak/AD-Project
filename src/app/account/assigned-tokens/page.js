@@ -319,7 +319,17 @@ export default function AssignedTokensPage() {
             </h1>
           </div>
 
-          {errorMessage ? (
+          <div className="flex flex-col gap-3 md:flex-row">
+            <Button
+              onClick={handleExpireAll}
+              disabled={isExpiringAll || isTableLoading || tokens.length === 0}
+              className="md:w-auto"
+            >
+              {isExpiringAll ? "Expiring all..." : "Expire all tokens"}
+            </Button>
+          </div>
+
+          {errorMessage && !modalToken ? (
             <p className="rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
               {errorMessage}
             </p>
@@ -330,16 +340,6 @@ export default function AssignedTokensPage() {
               {actionMessage}
             </p>
           ) : null}
-
-          <div className="flex flex-col gap-3 md:flex-row">
-            <Button
-              onClick={handleExpireAll}
-              disabled={isExpiringAll || isTableLoading || tokens.length === 0}
-              className="md:w-auto"
-            >
-              {isExpiringAll ? "Expiring all..." : "Expire all tokens"}
-            </Button>
-          </div>
 
           <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs font-medium text-green-800">
             Tip: Active status is clickable. Click an active badge to manually
@@ -463,6 +463,12 @@ export default function AssignedTokensPage() {
               Expire token <span className="font-mono">{modalToken.token}</span>{" "}
               for {modalToken.userEmail}?
             </p>
+
+            {errorMessage ? (
+              <p className="mt-4 rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+                {errorMessage}
+              </p>
+            ) : null}
 
             <div className="mt-5 flex gap-3">
               <Button

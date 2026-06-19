@@ -279,24 +279,6 @@ export default function TokenGenerationPage() {
           </div>
         </div>
 
-        {errorMessage ? (
-          <p className="rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
-            {errorMessage}
-          </p>
-        ) : null}
-
-        {findMessage ? (
-          <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-            {findMessage}
-          </p>
-        ) : null}
-
-        {assignMessage ? (
-          <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-            {assignMessage}
-          </p>
-        ) : null}
-
         <form
           onSubmit={handleFindUser}
           className="space-y-4 rounded-xl border border-border-light bg-white p-4"
@@ -310,6 +292,18 @@ export default function TokenGenerationPage() {
               onChange={(event) => setEmailInput(event.target.value)}
             />
           </div>
+
+          {errorMessage && !foundUser ? (
+            <p className="rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+              {errorMessage}
+            </p>
+          ) : null}
+
+          {findMessage ? (
+            <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+              {findMessage}
+            </p>
+          ) : null}
 
           <Button type="submit" disabled={isFindingUser}>
             {isFindingUser ? "Finding user..." : "Find user"}
@@ -344,6 +338,12 @@ export default function TokenGenerationPage() {
             <Button onClick={handleGenerateToken} disabled={!canGenerateToken}>
               Generate code
             </Button>
+
+            {errorMessage ? (
+              <p className="rounded-lg border border-warning/20 bg-white px-3 py-2 text-sm text-warning">
+                {errorMessage}
+              </p>
+            ) : null}
           </div>
         ) : null}
 

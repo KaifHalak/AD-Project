@@ -270,18 +270,6 @@ export default function EditEquipmentPage() {
             Back to {selectedLab.name}
           </button>
 
-          {message ? (
-            <p className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
-              {message}
-            </p>
-          ) : null}
-
-          {errorMessage ? (
-            <p className="rounded-xl border border-warning/20 bg-white px-4 py-3 text-sm font-medium text-warning">
-              {errorMessage}
-            </p>
-          ) : null}
-
           <div className="rounded-3xl border border-border-light bg-white p-7 shadow-sm">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
@@ -347,6 +335,18 @@ export default function EditEquipmentPage() {
                 </select>
               </Field>
             </div>
+
+            {message ? (
+              <p className="mt-6 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
+                {message}
+              </p>
+            ) : null}
+
+            {errorMessage ? (
+              <p className="mt-6 rounded-xl border border-warning/20 bg-white px-4 py-3 text-sm font-medium text-warning">
+                {errorMessage}
+              </p>
+            ) : null}
 
             <div className="mt-6 flex justify-end">
               <Button

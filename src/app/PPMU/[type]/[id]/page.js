@@ -494,12 +494,6 @@ export default function PpmuRequestDetailPage() {
           </div>
         </div>
 
-        {errorMessage ? (
-          <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {errorMessage}
-          </p>
-        ) : null}
-
         <div className="space-y-5">
           <DetailSection title="User Details">
             <Info label="Username" value={data.user_name || "-"} />
@@ -582,6 +576,12 @@ export default function PpmuRequestDetailPage() {
               placeholder="These remarks will be applied to every reviewed equipment item."
             />
           </label>
+
+          {errorMessage && !editingPriceItemId ? (
+            <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {errorMessage}
+            </p>
+          ) : null}
         </section>
 
         <div className="space-y-5">
@@ -744,6 +744,11 @@ export default function PpmuRequestDetailPage() {
                         <p className="mt-1 text-xs text-text-muted">
                           Estimated: {formatRm(item.total_price || 0)}
                         </p>
+                        {errorMessage && editingPriceItemId === item.id ? (
+                          <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                            {errorMessage}
+                          </p>
+                        ) : null}
                       </div>
                       {editingPriceItemId === item.id ? (
                         <div className="flex gap-2">
