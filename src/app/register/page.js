@@ -105,7 +105,7 @@ export default function RegisterPage() {
         <form onSubmit={handleRegister} className="space-y-6">
           <div className="text-center">
             <h1 className="text-3xl font-semibold text-primary">
-              Lab Booking System
+              Integrated Laboratory Booking System (InterLABS)
             </h1>
             <p className="mt-2 text-sm text-text-muted">Create a new account</p>
           </div>

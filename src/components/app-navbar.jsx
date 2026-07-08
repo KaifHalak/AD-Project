@@ -66,7 +66,7 @@ export default function AppNavbar() {
         setHasActiveVerification(
           Boolean(
             verificationResponse.data?.verified ||
-              verificationResponse.data?.bypassVerification,
+            verificationResponse.data?.bypassVerification,
           ),
         );
 
@@ -116,7 +116,10 @@ export default function AppNavbar() {
     }
 
     refreshBookingRequestCount();
-    window.addEventListener("booking-request-updated", refreshBookingRequestCount);
+    window.addEventListener(
+      "booking-request-updated",
+      refreshBookingRequestCount,
+    );
     window.addEventListener("storage", refreshBookingRequestCount);
 
     return () => {
@@ -137,7 +140,7 @@ export default function AppNavbar() {
     <header className="border-b border-border-light bg-panel">
       <nav className="mx-auto flex w-full max-w-none items-center justify-between gap-3 px-3 py-3 md:px-6">
         <p className="text-sm font-semibold text-primary md:text-base">
-          Lab Booking System
+          Integrated Laboratory Booking System (InterLABS)
         </p>
 
         <div className="flex items-center gap-2">
