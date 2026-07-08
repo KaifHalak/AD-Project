@@ -2,7 +2,21 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
-First, run the development server:
+First, add the following keys to .env file:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+
+SMTP_HOST=
+SMTP_PORT=
+SMTP_USER=
+BOOKING_EMAIL_FROM=
+SMTP_PASS=
+```
+
+Second, run the development server:
 
 ```bash
 npm run dev
